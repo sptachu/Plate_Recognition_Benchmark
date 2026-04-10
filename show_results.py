@@ -1,5 +1,8 @@
 import os
 import numpy as np
+import matplotlib
+# Naprawa błędu PyCharma: Wymuszenie użycia silnika okienkowego Tkinter
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -54,7 +57,8 @@ def rysuj_wykresy():
     czasy = [dane['YOLO_ms'], dane['OCR_ms'], dane['E2E_ms']]
     etykiety_czas = ['Detekcja YOLO', 'Odczyt OCR', 'Całość E2E']
 
-    bars1 = sns.barplot(x=etykiety_czas, y=czasy, palette="rocket", ax=ax1)
+    # Naprawa warninga z seaborn (dodano hue i legend=False)
+    bars1 = sns.barplot(x=etykiety_czas, y=czasy, hue=etykiety_czas, palette="rocket", legend=False, ax=ax1)
     ax1.set_title("Wydajność (Czas Przetwarzania)", fontsize=14, pad=15)
     ax1.set_ylabel("Czas [milisekundy]")
 
@@ -69,7 +73,8 @@ def rysuj_wykresy():
     metryki_wartosci = [dane['Precision'] * 100, dane['Recall'] * 100, dane['F1'] * 100, dane['Plate_Accuracy']]
     etykiety_metryk = ['Precyzja', 'Czułość', 'F1-Score', 'Exact Match\n(OCR)']
 
-    bars2 = sns.barplot(x=etykiety_metryk, y=metryki_wartosci, palette="viridis", ax=ax2)
+    # Naprawa warninga z seaborn (dodano hue i legend=False)
+    bars2 = sns.barplot(x=etykiety_metryk, y=metryki_wartosci, hue=etykiety_metryk, palette="viridis", legend=False, ax=ax2)
     ax2.set_title("Jakość Modeli (%)", fontsize=14, pad=15)
     ax2.set_ylim(0, 110)  # Skala wymuszona do 100%
     ax2.set_ylabel("Skuteczność [%]")
