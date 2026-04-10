@@ -157,8 +157,9 @@ try:
                     ocr_evaluated_count += 1
                     if true_txt == pred_txt:
                         exact_matches += 1
+                        print(f"✅ TRAFIENIE! Odczytano idealnie: '{pred_txt}'")
                     else:
-                        print(f"PUDŁO! Ground Truth: '{true_txt}' | EasyOCR przeczytał: '{pred_txt}'")
+                        print(f"❌ PUDŁO! Ground Truth: '{true_txt}' | EasyOCR przeczytał: '{pred_txt}'")
 
                     edit_dist = Levenshtein.distance(true_txt, pred_txt)
                     total_cer += edit_dist / len(true_txt) if len(true_txt) > 0 else 1.0
