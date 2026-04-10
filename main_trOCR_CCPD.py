@@ -10,9 +10,13 @@ from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 
 # --- USTAWIENIA TESTU ---
 MAX_IMAGES = 15  # Limit obrazków do przetworzenia w jednym teście
-IMAGES_DIR = 'dataset/UC3M-LP/test/'  # ścieżka do folderu ze zdjęciami
-LABELS_DIR = 'dataset/UC3M-LP/test/'  # ścieżka do folderu z plikami JSON
+BASE_DIR = 'dataset/CCPD2019/CCPD2019/'  # Główny folder datasetu
+TEST_SPLIT_FILE = os.path.join(BASE_DIR, 'splits', 'train.txt') # Plik z listą testową
 
+# --- SŁOWNIKI ZNAKÓW CCPD ---
+provinces = ["皖", "沪", "津", "渝", "冀", "晋", "蒙", "辽", "吉", "黑", "苏", "浙", "京", "闽", "赣", "鲁", "豫", "鄂", "湘", "粤", "桂", "琼", "川", "贵", "云", "藏", "陕", "甘", "青", "宁", "新", "警", "学", "O"]
+alphabets = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'O']
+ads = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'O']
 
 # --- AUTOMATYCZNE WYKRYWANIE SPRZĘTU ---
 def detect_hardware():
@@ -35,36 +39,42 @@ def oblicz_iou(boxA, boxB):
     return iou
 
 
-def czytaj_ground_truth_json(json_path):
-    """Odczytuje pliki JSON z bazy UC3M-LP."""
-    gt_boxes = []
-    gt_texts = []
-
-    if not os.path.exists(json_path):
-        return gt_boxes, gt_texts
-
-    with open(json_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-
-    for lp in data.get('lps', []):
-        # 1. Wyciąganie koordynatów i konwersja wielokąta na prostokąt (Bounding Box)
-        poly = lp.get('poly_coord', [])
-        if len(poly) == 4:
-            x_coords = [p[0] for p in poly]
-            y_coords = [p[1] for p in poly]
-            x1, y1 = min(x_coords), min(y_coords)
-            x2, y2 = max(x_coords), max(y_coords)
-            gt_boxes.append([x1, y1, x2, y2])
-        else:
-            continue
-
-        # 2. Składanie prawdziwego tekstu ze znaków
-        chars = lp.get('characters', [])
-        prawdziwy_tekst = "".join([c.get('char_id', '') for c in chars])
-        prawdziwy_tekst = prawdziwy_tekst.replace(" ", "").upper()
-        gt_texts.append(prawdziwy_tekst)
-
-    return gt_boxes, gt_texts
+def parse_ccpd_filename(filename):
+    """Dekoduje Ground Truth z nazwy pliku CCPD."""
+    # Usuwamy ścieżki i rozszerzenie, zostawiamy samą nazwę
+    base_name = os.path.basename(filename).replace('.jpg', '').replace('.png', '')
+    parts = base_name.split('-')
+    
+    # Jeśli format nazwy jest nieprawidłowy, pomiń
+    if len(parts) < 7:
+        return [], []
+        
+    # 1. Wyciąganie Bounding Boxa (część 2 w nazwie)
+    # Przykład: "154&383_386&473"
+    bbox_part = parts[2].split('_')
+    p1 = bbox_part[0].split('&')
+    p2 = bbox_part[1].split('&')
+    
+    x1, y1 = int(p1[0]), int(p1[1])
+    x2, y2 = int(p2[0]), int(p2[1])
+    
+    # Upewniamy się, że format to [min_x, min_y, max_x, max_y]
+    gt_box = [[min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]]
+    
+    # 2. Składanie prawdziwego tekstu (część 4 w nazwie)
+    # Przykład: "0_0_22_27_27_33_16"
+    indices = parts[4].split('_')
+    text = ""
+    if len(indices) == 7:
+        text += provinces[int(indices[0])]
+        text += alphabets[int(indices[1])]
+        for i in range(2, 7):
+            text += ads[int(indices[i])]
+            
+    # "O" oznacza brak znaku, więc go usuwamy
+    text = text.replace("O", "")
+    
+    return gt_box, [text]
 
 
 # --- INICJALIZACJA MODELI ---
@@ -86,27 +96,29 @@ ocr_evaluated_count = 0
 total_yolo_time, total_ocr_time, total_e2e_time = 0.0, 0.0, 0.0
 processed_images = 0
 
-print("\n[*] Rozpoczynam ewaluację na datasecie UC3M-LP...\n")
+print("\n[*] Rozpoczynam ewaluację na datasecie CCPD2019...\n")
 
 try:
-    for filename in os.listdir(IMAGES_DIR):
-        if not filename.lower().endswith(('.png', '.jpg', '.jpeg')):
-            continue
+    # Pobieranie listy obrazków z pliku test.txt
+    if not os.path.exists(TEST_SPLIT_FILE):
+        raise FileNotFoundError(f"Nie znaleziono pliku splitu: {TEST_SPLIT_FILE}")
+        
+    with open(TEST_SPLIT_FILE, 'r') as f:
+        test_images = [line.strip() for line in f.readlines() if line.strip()]
 
-        # Parowanie zdjęcia z odpowiednim plikiem JSON
-        base_name = os.path.splitext(filename)[0]
-        img_path = os.path.join(IMAGES_DIR, filename)
-        json_path = os.path.join(LABELS_DIR, base_name + '.json')
-
+    for rel_path in test_images:
+        img_path = os.path.join(BASE_DIR, rel_path)
+        
         img = cv2.imread(img_path)
         if img is None:
+            print(f"[!] Nie udało się wczytać obrazu: {img_path}")
             continue
 
         h_img, w_img, _ = img.shape
-        gt_boxes, gt_texts = czytaj_ground_truth_json(json_path)
+        gt_boxes, gt_texts = parse_ccpd_filename(rel_path)
 
-        # Ominięcie zdjęcia, jeśli Ground Truth jest pusty
-        if not gt_boxes:
+        # Ominięcie zdjęcia, jeśli Ground Truth jest pusty (zła nazwa pliku)
+        if not gt_boxes or not gt_texts[0]:
             continue
 
         t_start_e2e = time.perf_counter()
