@@ -257,6 +257,7 @@ try:
                             read_text = read_text[:7]
 
                     # Koniec koła ratunkowego, odkładamy ostateczny wynik
+                read_text = korekta_hiszpanska(read_text)
                 pred_texts.append(read_text)
 
         total_e2e_time += (time.perf_counter() - t_start_e2e)
