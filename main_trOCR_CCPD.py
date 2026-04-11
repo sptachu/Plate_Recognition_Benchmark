@@ -6,7 +6,7 @@ import Levenshtein
 import torch
 from ultralytics import YOLO
 from PIL import Image
-from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+from transformers import TrOCRProcessor, VisionEncoderDecoderModel, LogitsProcessor, LogitsProcessorList
 
 # --- USTAWIENIA TESTU ---
 MAX_IMAGES = 15  # Limit obrazków do przetworzenia w jednym teście
@@ -77,6 +77,27 @@ def parse_ccpd_filename(filename):
     return gt_box, [text]
 
 
+# Needed for allowed characters
+class TrOCRAllowlistProcessor(LogitsProcessor):
+    def __init__(self, allowlist_str, tokenizer):
+        # We need to find every token ID that contains a character NOT in our list
+        self.bad_token_ids = []
+        for i in range(tokenizer.vocab_size):
+            token_text = tokenizer.decode([i], skip_special_tokens=True).strip()
+            # If the token contains any character NOT in our allowlist, block it
+            # (We keep empty strings/special tokens so the model can still finish)
+            if token_text and any(char not in allowlist_str for char in token_text):
+                self.bad_token_ids.append(i)
+        
+        # Create a mask: 0 for allowed, -inf for forbidden
+        self.mask = torch.zeros(tokenizer.vocab_size)
+        self.mask[self.bad_token_ids] = float("-inf")
+
+    def __call__(self, input_ids, scores):
+        # Add the mask to the current scores before the model picks the next token
+        return scores + self.mask.to(scores.device)
+
+
 # --- INICJALIZACJA MODELI ---
 device_yolo, use_gpu_ocr = detect_hardware()
 print("[*] Ładowanie YOLO11...")
@@ -86,6 +107,13 @@ device_ocr = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-printed")
 reader = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-printed")
 reader.to(device_ocr)
+
+# Allowed characters
+provinces_str = "".join(["皖", "沪", "津", "渝", "冀", "晋", "蒙", "辽", "吉", "黑", "苏", "浙", "京", "闽", "赣", "鲁", "豫", "鄂", "湘", "粤", "桂", "琼", "川", "贵", "云", "藏", "陕", "甘", "青", "宁", "新", "警", "学"])
+allowed_chars = provinces_str + "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+logits_processor = LogitsProcessorList([
+    TrOCRAllowlistProcessor(allowed_chars, processor.tokenizer)
+])
 
 # --- ZMIENNE DO STATYSTYK ---
 TP, FP, FN = 0, 0, 0
@@ -147,7 +175,7 @@ try:
                 t_start_ocr = time.perf_counter()
                 pixel_values = processor(images=pil_img, return_tensors="pt").pixel_values
                 pixel_values = pixel_values.to(device_ocr)
-                generated_ids = reader.generate(pixel_values)
+                generated_ids = reader.generate(pixel_values, logits_processor=logits_processor, max_new_tokens=10)
                 ocr_results = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
                 total_ocr_time += (time.perf_counter() - t_start_ocr)
 
@@ -181,7 +209,7 @@ try:
                         exact_matches += 1
                         print(f"✅ TRAFIENIE! Odczytano idealnie: '{pred_txt}'")
                     else:
-                        print(f"❌ PUDŁO! Ground Truth: '{true_txt}' | EasyOCR przeczytał: '{pred_txt}'")
+                        print(f"❌ PUDŁO! Ground Truth: '{true_txt}' | TrOCR przeczytał: '{pred_txt}'")
 
                     edit_dist = Levenshtein.distance(true_txt, pred_txt)
                     total_cer += edit_dist / len(true_txt) if len(true_txt) > 0 else 1.0
