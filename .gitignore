@@ -5,4 +5,5 @@ Include/
 Lib/
 Scripts/
 share/
+EasyOCR/
 pyvenv.cfg

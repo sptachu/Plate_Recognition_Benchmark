@@ -104,7 +104,12 @@ device_yolo, use_gpu_ocr = detect_hardware()
 print("[*] Ładowanie YOLO11...")
 detector = YOLO('yolo11_plate.pt')
 print("[*] Ładowanie EasyOCR...")
-reader = easyocr.Reader(['en'], gpu=use_gpu_ocr)
+reader = easyocr.Reader(
+    ['en'],
+    recog_network='custom_uc3m',
+    user_network_directory='./my_models',
+    model_storage_directory='./my_models'
+)
 
 # --- ZMIENNE DO STATYSTYK ---
 TP, FP, FN = 0, 0, 0
@@ -151,113 +156,56 @@ try:
             for box in result.boxes:
                 # --- POCZĄTEK PĘTLI: Pobranie koordynatów z YOLO ---
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
-
-                # [ZASADA 1]: Zawsze dodajemy oryginalną ramkę do statystyk (chroni przed IndexError)
                 pred_boxes.append([x1, y1, x2, y2])
 
-                # --- KROK 3: OSTRZEJSZE CIĘCIE (Zabijamy 'E' i ramki) ---
+                # --- KROK 3: CIĘCIE IDENTYCZNE JAK W TRENINGU ---
                 szerokosc = x2 - x1
                 wysokosc = y2 - y1
 
-                # Ucinamy aż 8% z lewej, żeby ostatecznie pożegnać się z literką 'E' z flagi UE
-                nowe_x1 = int(x1 + (szerokosc * 0.09))
-                nowe_x2 = int(x2 - (szerokosc * 0.02))
-                # Tniemy mocniej z góry i z dołu, żeby zabić napisy dealerskie pod tablicą
-                nowe_y1 = int(y1 + (wysokosc * 0.08))
-                nowe_y2 = int(y2 - (wysokosc * 0.08))
+                nowe_x1 = int(x1 + (szerokosc * 0.09))  # Odcięcie 9% z lewej
+                nowe_x2 = x2  # Zostawiamy prawą stronę w spokoju
+                nowe_y1 = int(y1 + (wysokosc * 0.08))  # Odcięcie 8% z góry
+                nowe_y2 = int(y2 - (wysokosc * 0.08))  # Odcięcie 8% z dołu
 
                 plate_crop = img[max(0, nowe_y1):min(h_img, nowe_y2), max(0, nowe_x1):min(w_img, nowe_x2)]
 
-                # Jeśli ucięliśmy za dużo i obrazek jest pusty, oddajemy pusty string
                 if plate_crop.size == 0:
                     pred_texts.append("")
                     continue
 
-                # --- KROK 4: OTSU BINARYZACJA (Czarno-biały skan) ---
-                gray = cv2.cvtColor(plate_crop, cv2.COLOR_BGR2GRAY)
-                gray = cv2.normalize(gray, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
-                # Magia OCR: Otsu automatycznie znajduje idealny próg, żeby oddzielić czarne litery od białego tła
-                _, binary_img = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                # --- KROK 4: ZWYKŁA SZAROŚĆ I WYMUSZENIE ROZMIARU ---
+                gray_crop = cv2.cvtColor(plate_crop, cv2.COLOR_BGR2GRAY)
+
+                # Wymuszamy dokładnie te same wymiary (100x32), na których uczył się model!
+                gray_crop = cv2.resize(gray_crop, (100, 32), interpolation=cv2.INTER_CUBIC)
 
                 t_start_ocr = time.perf_counter()
                 dozwolone_znaki = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
-                # Puszczamy idealnie czarno-biały obraz do modelu
-                ocr_results = reader.readtext(binary_img, detail=1, allowlist=dozwolone_znaki)
+                # --- KROK 5: CZYTANIE BEZPOŚREDNIE (Model VGG) ---
+                # Skoro wymusiliśmy 100x32, nasz sztuczny box też musi mieć ten stały wymiar
+                sztuczny_box = [0, 100, 0, 32]
+
+                # contrast_ths=0.0 zostaje, żeby EasyOCR nie manipulował jasnością
+                ocr_results = reader.recognize(
+                    gray_crop,
+                    horizontal_list=[sztuczny_box],
+                    free_list=[],
+                    detail=1,
+                    allowlist=dozwolone_znaki,
+                    contrast_ths=0.0
+                )
                 total_ocr_time += (time.perf_counter() - t_start_ocr)
 
-                # --- KROK 5: RYGORYSTYCZNY FILTR GEOMETRYCZNY ---
-                czyste_kawalki = []
-                crop_h, crop_w = plate_crop.shape[:2]
-
-                if crop_h > 0:
-                    for bbox, text, prob in ocr_results:
-                        tekst = text.replace(" ", "").upper()
-                        box_h = bbox[2][1] - bbox[0][1]
-
-                        # 1. Główny filtr wysokości (Zabójca śrubek):
-                        # Litery na tablicy są wysokie. Jeśli znak zajmuje mniej niż 40% wysokości obrazka - to śmieć!
-                        if (box_h / crop_h) < 0.40:
-                            continue
-
-                        # 2. Filtr halucynacji: EasyOCR często zmyśla pojedyncze znaki ("L", "1").
-                        # Jeśli wykrył tylko 1 znak, musi być go pewien na minimum 60%.
-                        if len(tekst) == 1 and prob < 0.60:
-                            continue
-
-                        # 3. Jeśli przeszło powyższe testy, bierzemy do wyniku
-                        if len(tekst) >= 1 and prob > 0.35:
-                            czyste_kawalki.append((bbox[0][0], tekst))
-
-                czyste_kawalki.sort(key=lambda x: x[0])
-                read_text = "".join([k[1] for k in czyste_kawalki])
+                # --- KROK 6: WYNIK ---
+                read_text = ""
+                if len(ocr_results) > 0:
+                    read_text = ocr_results[0][1].replace(" ", "").upper()
 
                 if len(read_text) > 7:
                     read_text = read_text[:7]
 
-                    # --- KROK 6: KOŁO RATUNKOWE (FALLBACK OCR) ---
-                    # Jeśli po naszych rygorystycznych filtrach zostało nam nic, albo tylko 1-2 litery (podejrzenie błędu)
-                if len(read_text) < 3:
-                    # 1. Cofamy się do oryginalnej ramki YOLO z minimalnym, kosmetycznym cięciem 2%
-                    nowe_x1_fb = int(x1 + (szerokosc * 0.02))
-                    nowe_x2_fb = int(x2 - (szerokosc * 0.02))
-                    nowe_y1_fb = int(y1 + (wysokosc * 0.02))
-                    nowe_y2_fb = int(y2 - (wysokosc * 0.02))
-
-                    plate_crop_fb = img[max(0, nowe_y1_fb):min(h_img, nowe_y2_fb),
-                                    max(0, nowe_x1_fb):min(w_img, nowe_x2_fb)]
-
-                    if plate_crop_fb.size > 0:
-                        # 2. Rezygnujemy z Blura (mógł stopić małe litery)
-                        gray_fb = cv2.cvtColor(plate_crop_fb, cv2.COLOR_BGR2GRAY)
-                        gray_fb = cv2.normalize(gray_fb, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
-
-                        t_start_fb = time.perf_counter()
-                        # 3. Odpalamy z mag_ratio=1.5 (powiększenie, które ratuje zamazane tablice)
-                        fb_results = reader.readtext(gray_fb, detail=1, allowlist=dozwolone_znaki, mag_ratio=1.5)
-                        total_ocr_time += (time.perf_counter() - t_start_fb)
-
-                        fb_kawalki = []
-                        crop_h_fb = plate_crop_fb.shape[0]
-
-                        for bbox, text, prob in fb_results:
-                            tekst = text.replace(" ", "").upper()
-                            box_h = bbox[2][1] - bbox[0][1]
-
-                            # Bardzo łagodne filtry dla koła ratunkowego (przepuszczą niemal wszystko, co ma sens)
-                            if (box_h / crop_h_fb) < 0.15:
-                                continue
-                            if len(tekst) >= 1 and prob > 0.25:
-                                fb_kawalki.append((bbox[0][0], tekst))
-
-                        fb_kawalki.sort(key=lambda x: x[0])
-                        read_text = "".join([k[1] for k in fb_kawalki])
-
-                        if len(read_text) > 7:
-                            read_text = read_text[:7]
-
-                    # Koniec koła ratunkowego, odkładamy ostateczny wynik
-                read_text = korekta_hiszpanska(read_text)
+                # Model wie lepiej, już go nie poprawiamy!
                 pred_texts.append(read_text)
 
         total_e2e_time += (time.perf_counter() - t_start_e2e)
