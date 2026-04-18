@@ -7,8 +7,11 @@ import torch
 from ultralytics import YOLO
 import easyocr
 import re
+import numpy as np
+from easyocr.model.vgg_model import Model
+
 # --- USTAWIENIA TESTU ---
-MAX_IMAGES = 15  # Limit obrazków do przetworzenia w jednym teście
+MAX_IMAGES = 349  # Limit obrazków do przetworzenia w jednym teście
 IMAGES_DIR = 'dataset/UC3M-LP/test/'  # ścieżka do folderu ze zdjęciami
 LABELS_DIR = 'dataset/UC3M-LP/test/'  # ścieżka do folderu z plikami JSON
 
@@ -23,7 +26,94 @@ def detect_hardware():
 
 
 # --- FUNKCJE POMOCNICZE ---
+class CzystyRozpoznawacz:
+    def __init__(self, model_path, alfabet):
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        # [blank] to specjalny, pusty znak wymagany przez sieci typu CTC
+        self.char_list = ['[blank]'] + list(alfabet)
 
+        # 1. Inicjalizacja "gołej" architektury VGG (identycznej jak na treningu)
+        self.model = Model(
+            input_channel=1,
+            output_channel=256,
+            hidden_size=256,
+            num_class=len(self.char_list)
+        )
+
+        # 2. Ładowanie Twoich wag
+        state_dict = torch.load(model_path, map_location=self.device)
+
+        # Oczyszczanie kluczy z prefixu 'module.' (pozostałość po treningu na GPU)
+        nowe_wagi = {}
+        for k, v in state_dict.items():
+            nowe_wagi[k.replace('module.', '')] = v
+
+        self.model.load_state_dict(nowe_wagi)
+        self.model.to(self.device)
+        self.model.eval()
+
+    def czytaj(self, img_cv_grey):
+        # 3. Sztywny resize 100x32 - dokładnie tak jak na treningu
+        img = cv2.resize(img_cv_grey, (100, 32), interpolation=cv2.INTER_CUBIC)
+
+        # 4. Normalizacja wartości pikseli do zakresu [-1, 1]
+        img = img.astype(np.float32) / 255.0
+        img = (img - 0.5) / 0.5
+
+        # 5. Tworzenie Tensora PyTorch o kształcie (Batch=1, Channel=1, H=32, W=100)
+        tensor = torch.FloatTensor(img).unsqueeze(0).unsqueeze(0).to(self.device)
+        dummy_text = torch.LongTensor(1, 25).fill_(0).to(self.device)
+
+        with torch.no_grad():
+            preds = self.model(tensor, dummy_text)
+            _, preds_index = preds.max(2)
+
+        # 6. Czyste dekodowanie CTC (usuwa duplikaty i znaki [blank])
+        t = preds_index[0].cpu().numpy()
+        char_list = []
+        for i in range(len(t)):
+            if t[i] != 0 and (not (i > 0 and t[i - 1] == t[i])):
+                char_list.append(self.char_list[t[i]])
+
+        # Limit do 7 znaków (tablice hiszpańskie)
+        wynik = ''.join(char_list)
+        return wynik[:7] if len(wynik) > 7 else wynik
+
+
+def inteligentny_postprocessing(tekst):
+    if not tekst: return ""
+
+    # 1. Globalne poprawki (W hiszpańskich tablicach rzadko używa się litery O, zazwyczaj to zero)
+    tekst = tekst.replace('O', '0')
+
+    # 2. Łatanie błędu CTC (zjadanie podwójnych liter na końcu)
+    # Jeśli model wypluł 4 znaki (3 cyfry i 1 litera), a powinien 5, podwajamy literę!
+    # Np. "505W" -> "505WW"
+    if len(tekst) == 4 and tekst[:3].isdigit() and tekst[3].isalpha():
+        tekst = tekst + tekst[3]
+
+    # 3. Wymuszanie formatu (3 cyfry + 2 litery) - najczęstszy przypadek
+    # Działa tylko jeśli tekst ma 5 znaków i zaczyna się od cyfry (omija formaty typu "M710P")
+    if len(tekst) == 5 and (tekst[0].isdigit() or tekst[0] in 'SBZIG'):
+        chars = list(tekst)
+
+        # Słowniki pomyłek
+        litery_na_cyfry = {'S': '5', 'Z': '2', 'B': '8', 'I': '1', 'G': '6', 'T': '7'}
+        cyfry_na_litery = {'5': 'S', '2': 'Z', '8': 'B', '1': 'I', '0': 'D', '6': 'G'}
+
+        # Pierwsze 3 znaki MUSZĄ być cyframi
+        for i in range(3):
+            if chars[i] in litery_na_cyfry:
+                chars[i] = litery_na_cyfry[chars[i]]
+
+        # Ostatnie 2 znaki MUSZĄ być literami
+        for i in range(3, 5):
+            if chars[i] in cyfry_na_litery:
+                chars[i] = cyfry_na_litery[chars[i]]
+
+        tekst = "".join(chars)
+
+    return tekst
 
 def korekta_hiszpanska(tekst):
     if not tekst: return ""
@@ -103,13 +193,10 @@ def czytaj_ground_truth_json(json_path):
 device_yolo, use_gpu_ocr = detect_hardware()
 print("[*] Ładowanie YOLO11...")
 detector = YOLO('yolo11_plate.pt')
-print("[*] Ładowanie EasyOCR...")
-reader = easyocr.Reader(
-    ['en'],
-    recog_network='custom_uc3m',
-    user_network_directory='./my_models',
-    model_storage_directory='./my_models'
-)
+print("[*] Ładowanie własnego silnika PyTorch (VGG)...")
+ALFABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+MODEL_PATH = './my_models/custom_uc3m.pth'
+rozpoznawacz = CzystyRozpoznawacz(MODEL_PATH, ALFABET)
 
 # --- ZMIENNE DO STATYSTYK ---
 TP, FP, FN = 0, 0, 0
@@ -154,11 +241,10 @@ try:
 
         for result in results:
             for box in result.boxes:
-                # --- POCZĄTEK PĘTLI: Pobranie koordynatów z YOLO ---
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                 pred_boxes.append([x1, y1, x2, y2])
 
-                # --- KROK 3: CIĘCIE IDENTYCZNE JAK W TRENINGU ---
+                # --- CIĘCIE IDENTYCZNE JAK W TRENINGU ---
                 szerokosc = x2 - x1
                 wysokosc = y2 - y1
 
@@ -173,39 +259,15 @@ try:
                     pred_texts.append("")
                     continue
 
-                # --- KROK 4: ZWYKŁA SZAROŚĆ I WYMUSZENIE ROZMIARU ---
                 gray_crop = cv2.cvtColor(plate_crop, cv2.COLOR_BGR2GRAY)
 
-                # Wymuszamy dokładnie te same wymiary (100x32), na których uczył się model!
-                gray_crop = cv2.resize(gray_crop, (100, 32), interpolation=cv2.INTER_CUBIC)
-
+                # --- CZYSTY OCR PYTORCH ---
                 t_start_ocr = time.perf_counter()
-                dozwolone_znaki = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-
-                # --- KROK 5: CZYTANIE BEZPOŚREDNIE (Model VGG) ---
-                # Skoro wymusiliśmy 100x32, nasz sztuczny box też musi mieć ten stały wymiar
-                sztuczny_box = [0, 100, 0, 32]
-
-                # contrast_ths=0.0 zostaje, żeby EasyOCR nie manipulował jasnością
-                ocr_results = reader.recognize(
-                    gray_crop,
-                    horizontal_list=[sztuczny_box],
-                    free_list=[],
-                    detail=1,
-                    allowlist=dozwolone_znaki,
-                    contrast_ths=0.0
-                )
+                read_text = rozpoznawacz.czytaj(gray_crop)
                 total_ocr_time += (time.perf_counter() - t_start_ocr)
 
-                # --- KROK 6: WYNIK ---
-                read_text = ""
-                if len(ocr_results) > 0:
-                    read_text = ocr_results[0][1].replace(" ", "").upper()
-
-                if len(read_text) > 7:
-                    read_text = read_text[:7]
-
-                # Model wie lepiej, już go nie poprawiamy!
+                # --- POST-PROCESSING I ZAPIS ---
+                read_text = inteligentny_postprocessing(read_text)
                 pred_texts.append(read_text)
 
         total_e2e_time += (time.perf_counter() - t_start_e2e)
