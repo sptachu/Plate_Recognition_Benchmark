@@ -9,7 +9,7 @@ from PIL import Image
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel, LogitsProcessor, LogitsProcessorList
 
 # --- USTAWIENIA TESTU ---
-MAX_IMAGES = 100  # Limit obrazków do przetworzenia w jednym teście
+MAX_IMAGES = 400  # Limit obrazków do przetworzenia w jednym teście
 IMAGES_DIR = 'dataset/UC3M-LP/test/'  # ścieżka do folderu ze zdjęciami
 LABELS_DIR = 'dataset/UC3M-LP/test/'  # ścieżka do folderu z plikami JSON
 
@@ -115,8 +115,8 @@ print("[*] Ładowanie YOLO11...")
 detector = YOLO('yolo11_plate.pt')
 print("[*] Ładowanie TrOCR...")
 device_ocr = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-printed")
-reader = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-printed")
+processor = TrOCRProcessor.from_pretrained("./trocr-license-plates/final_model")
+reader = VisionEncoderDecoderModel.from_pretrained("./trocr-license-plates/final_model")
 reader.to(device_ocr)
 
 # Allowed characters
@@ -171,18 +171,23 @@ try:
                 pad = -15 # pixels
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
 
-                crop_x1 = max(0, x1 - pad)
-                crop_y1 = max(0, y1 - pad)
-                crop_x2 = min(w_img, x2 + pad)
-                crop_y2 = min(h_img, y2 + pad)
+                # width = x2 - x1
+                # height = y2 - y1
 
-                plate_crop = img[crop_y1:crop_y2, crop_x1:crop_x2]
+                # crop_x1 = int(x1 + (width * 0.09))
+                # crop_y1 = max(0, y1 - pad)
+                # crop_x2 = min(w_img, x2 + pad)
+                # crop_y2 = min(h_img, y2 + pad)
+
+                # plate_crop = img[crop_y1:crop_y2, crop_x1:crop_x2]
+                plate_crop = img[y1:y2, x1:x2]
+
 
                 if plate_crop.size == 0:
                     pred_texts.append("")
                     continue
                 
-                plate_rgb = cv2.cvtColor(plate_crop, cv2.COLOR_BGR2RGB)
+                plate_rgb = cv2.cvtColor(plate_crop, cv2.COLOR_BGR2RGB) 
                 pil_img = Image.fromarray(plate_rgb)
 
                 t_start_ocr = time.perf_counter()
@@ -190,19 +195,61 @@ try:
                 pixel_values = pixel_values.to(device_ocr)
                 generated_ids = reader.generate(
                     pixel_values, 
-                    logits_processor=spanish_logic,
+                    # logits_processor=spanish_logic,
                     num_beams=1,           # <-- CHANGE THIS TO 1
-                    max_new_tokens=6,      
-                    min_new_tokens=6,      
+                    max_new_tokens=5,      
+                    min_new_tokens=5,      
                     early_stopping=True    # You can actually remove this if num_beams=1
                 )
                 ocr_results = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
                 total_ocr_time += (time.perf_counter() - t_start_ocr)
 
-                read_text = "".join(ocr_results).replace(" ", "").upper()
+                raw_text = "".join(ocr_results).replace(" ", "").upper()
+                read_text = raw_text[:5]
+                
+                # read_text = "".join(ocr_results).replace(" ", "").upper()
                 pred_texts.append(read_text)
 
         total_e2e_time += (time.perf_counter() - t_start_e2e)
+
+        # # 1. First, make sure all drawing happens BEFORE showing the image
+        # for p_idx, p_box in enumerate(pred_boxes):
+        #     px1, py1, px2, py2 = p_box
+        #     width = x2 - x1
+        #     height = y2 - y1
+
+        #     px1 = int(x1 + (width * 0.09))
+        #     py1 = max(0, y1 - pad)
+        #     px2 = min(w_img, x2 + pad)
+        #     py2 = min(h_img, y2 + pad)
+        #     text = pred_texts[p_idx]
+            
+        #     # Draw the box and the text on the 'img'
+        #     cv2.rectangle(img, (px1, py1), (px2, py2), (0, 255, 0), 3)
+        #     cv2.putText(img, text, (px1, py1 - 15), 
+        #                 cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
+
+        # # 2. Scale the image down so it fits on your monitor
+        # # We calculate a scaling factor (e.g., 0.5 = half size)
+        # screen_res = 1280, 720  # Target resolution for your monitor
+        # scale_width = screen_res[0] / img.shape[1]
+        # scale_height = screen_res[1] / img.shape[0]
+        # scale = min(scale_width, scale_height)
+
+        # # Only scale down if the image is actually bigger than the screen
+        # if scale < 1.0:
+        #     window_w = int(img.shape[1] * scale)
+        #     window_h = int(img.shape[0] * scale)
+        #     display_img = cv2.resize(img, (window_w, window_h))
+        # else:
+        #     display_img = img
+
+        # # 3. Show the scaled image
+        # cv2.imshow("Plate Benchmark - Press any key for next", display_img)
+
+        # key = cv2.waitKey(0) & 0xFF
+        # if key == ord('q'): # Press 'q' to quit early
+        #     break
 
         # Ewaluacja Detekcji i OCR
         matched_gt = set()
