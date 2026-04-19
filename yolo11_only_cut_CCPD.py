@@ -8,14 +8,14 @@ from ultralytics import YOLO
 # --- USTAWIENIA ---
 ROOT_DATA_DIR = 'dataset/CCPD2019/'
 SPLIT_FILES = {
-    'train': 'dataset/CCPD2019/splits/train.txt',
-    'test': 'dataset/CCPD2019/splits/test.txt'
+    'train': 'dataset/CCPD2019/splits/new_train.txt',
+    'test': 'dataset/CCPD2019/splits/new_test.txt'
 }
 
 # --- LIMITS ---
 LIMITS = {
-    'train': 3000,
-    'test': 500
+    'train': 5000,
+    'test': 1000
 }
 
 # --- NOWE PARAMETRY CIĘCIA ---

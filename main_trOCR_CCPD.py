@@ -6,12 +6,12 @@ import Levenshtein
 import torch
 from ultralytics import YOLO
 from PIL import Image
-from transformers import TrOCRProcessor, VisionEncoderDecoderModel, LogitsProcessor, LogitsProcessorList
+from transformers import TrOCRProcessor, VisionEncoderDecoderModel, LogitsProcessor, LogitsProcessorList, AutoProcessor, AutoModelForImageTextToText, ViTImageProcessor, AutoTokenizer
 
 # --- USTAWIENIA TESTU ---
-MAX_IMAGES = 15  # Limit obrazków do przetworzenia w jednym teście
+MAX_IMAGES = 1000  # Limit obrazków do przetworzenia w jednym teście
 BASE_DIR = 'dataset/CCPD2019/CCPD2019/'  # Główny folder datasetu
-TEST_SPLIT_FILE = os.path.join(BASE_DIR, 'splits', 'train.txt') # Plik z listą testową
+TEST_SPLIT_FILE = os.path.join(BASE_DIR, 'splits', 'new_test.txt') # Plik z listą testową
 
 # --- SŁOWNIKI ZNAKÓW CCPD ---
 provinces = ["皖", "沪", "津", "渝", "冀", "晋", "蒙", "辽", "吉", "黑", "苏", "浙", "京", "闽", "赣", "鲁", "豫", "鄂", "湘", "粤", "桂", "琼", "川", "贵", "云", "藏", "陕", "甘", "青", "宁", "新", "警", "学", "O"]
@@ -73,6 +73,7 @@ def parse_ccpd_filename(filename):
             
     # "O" oznacza brak znaku, więc go usuwamy
     text = text.replace("O", "")
+    text = text[2:]
     
     return gt_box, [text]
 
@@ -103,9 +104,10 @@ device_yolo, use_gpu_ocr = detect_hardware()
 print("[*] Ładowanie YOLO11...")
 detector = YOLO('yolo11_plate.pt')
 print("[*] Ładowanie TrOCR...")
+
 device_ocr = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-printed")
-reader = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-printed")
+processor = TrOCRProcessor.from_pretrained("./trocr-license-plates-CCPD/final_model")
+reader = VisionEncoderDecoderModel.from_pretrained("./trocr-license-plates-CCPD/final_model")
 reader.to(device_ocr)
 
 # Allowed characters
@@ -161,9 +163,24 @@ try:
         for result in results:
             for box in result.boxes:
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
+                oryg_szer = x2 - x1
+                oryg_wys = y2 - y1
+                odciecie_px = int(oryg_szer * 0.35)
+                nx1 = x1 + odciecie_px
+
                 pred_boxes.append([x1, y1, x2, y2])
 
-                plate_crop = img[y1:y2, x1:x2]
+                plate_crop = img[max(0, y1):min(h_img, y2), max(0, nx1):min(w_img, x2)]
+                # plate_crop = img[y1:y2, x1:x2]
+                if plate_crop.size > 0:
+                    # 4. Dodajemy czarny padding z lewej strony, by zachować wymiary ramki
+                    # cv2.copyMakeBorder(obraz, top, bottom, left, right, typ_ramki, kolor)
+                    plate_crop = cv2.copyMakeBorder(
+                        plate_crop,
+                        0, 0, odciecie_px, 0,
+                        cv2.BORDER_CONSTANT,
+                        value=(0, 0, 0)  # Czarne tło
+                    )
 
                 if plate_crop.size == 0:
                     pred_texts.append("")
@@ -175,7 +192,7 @@ try:
                 t_start_ocr = time.perf_counter()
                 pixel_values = processor(images=pil_img, return_tensors="pt").pixel_values
                 pixel_values = pixel_values.to(device_ocr)
-                generated_ids = reader.generate(pixel_values, logits_processor=logits_processor, max_new_tokens=10)
+                generated_ids = reader.generate(pixel_values, max_new_tokens=10)
                 ocr_results = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
                 total_ocr_time += (time.perf_counter() - t_start_ocr)
 
@@ -205,11 +222,12 @@ try:
 
                 if true_txt:
                     ocr_evaluated_count += 1
+                    edit_dist = Levenshtein.distance(true_txt, pred_txt)
                     if true_txt == pred_txt:
                         exact_matches += 1
                         print(f"✅ TRAFIENIE! Odczytano idealnie: '{pred_txt}'")
                     else:
-                        print(f"❌ PUDŁO! Ground Truth: '{true_txt}' | TrOCR przeczytał: '{pred_txt}'")
+                        print(f"❌ PUDŁO! Ground Truth: '{true_txt}' | TrOCR przeczytał: '{pred_txt} | Odległość Levenshteina: {edit_dist}")
 
                     edit_dist = Levenshtein.distance(true_txt, pred_txt)
                     total_cer += edit_dist / len(true_txt) if len(true_txt) > 0 else 1.0
