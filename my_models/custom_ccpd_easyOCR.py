@@ -1,0 +1,1 @@
+from easyocr.model.vgg_model import Model

@@ -2,24 +2,27 @@ import os
 import cv2
 import torch
 import random
-import numpy as np
+import glob
 from ultralytics import YOLO
 
 # --- USTAWIENIA ---
 ROOT_DATA_DIR = 'dataset/CCPD2019/'
+
+# ZMIANA: Dokładnie te pliki, które przed chwilą wygenerował Twój pierwszy skrypt!
 SPLIT_FILES = {
-    'train': 'dataset/CCPD2019/splits/new_train.txt',
-    'test': 'dataset/CCPD2019/splits/new_test.txt'
+    'train': 'dataset/CCPD2019/splits/train_nowy.txt',
+    'test': 'dataset/CCPD2019/splits/test_nowy.txt'
 }
 
 # --- LIMITS ---
+# (Zostawiłem na wszelki wypadek, choć listy mają już 9000/1000)
 LIMITS = {
-    'train': 5000,
+    'train': 9000,
     'test': 1000
 }
 
-# --- NOWE PARAMETRY CIĘCIA ---
-CROP_LEFT_PERCENT = 0.35  # Odcinamy 37% (Prowincja + Litera miasta + Kropka)
+# --- NOWE PARAMETRY CIĘCIA (Pod Fine-Tuning) ---
+CROP_LEFT_PERCENT = 0.35  # Odcinamy 37% lewej strony
 
 # --- CCPD DICTIONARIES ---
 PROVINCES = ["皖", "沪", "津", "渝", "冀", "晋", "蒙", "辽", "吉", "黑", "苏", "浙", "京", "闽", "赣", "鲁", "豫", "鄂",
@@ -65,27 +68,36 @@ def parse_ccpd_filename(path):
         return None, None
 
 
+def czysc_folder(dir_path):
+    """Usuwa stare zdjęcia przed wygenerowaniem nowych (żeby się nie mieszały)."""
+    if os.path.exists(dir_path):
+        print(f"[*] Czyszczenie starego folderu: {dir_path}")
+        files = glob.glob(os.path.join(dir_path, '*.jpg')) + glob.glob(os.path.join(dir_path, '*.txt'))
+        for f in files:
+            try:
+                os.remove(f)
+            except Exception as e:
+                pass
+
+
 def wytnij_i_zapisz():
     device_yolo, _ = detect_hardware()
     detector = YOLO('yolo11_plate.pt')
 
     for split_name, txt_file in SPLIT_FILES.items():
-        if not os.path.exists(txt_file): continue
+        if not os.path.exists(txt_file):
+            print(f"[!] BŁĄD: Nie znaleziono pliku {txt_file}")
+            continue
 
         output_dir = os.path.join(ROOT_DATA_DIR, f"{split_name}_ocr")
         os.makedirs(output_dir, exist_ok=True)
+        czysc_folder(output_dir)  # Odpalenie miotły przed pracą
 
         labels_file_path = os.path.join(output_dir, 'labels.txt')
 
-        print(f"[*] Reading and shuffling {split_name} list...")
-        with open(txt_file, 'r') as f:
-            all_lines = [line.strip() for line in f if line.strip()]
-
-        random.seed(42)
-        random.shuffle(all_lines)
-
-        target_lines = all_lines[:LIMITS[split_name]]
-        print(f"[*] Limited {split_name} to {len(target_lines)} samples.")
+        print(f"[*] Wczytywanie listy {split_name}...")
+        with open(txt_file, 'r', encoding='utf-8') as f:
+            target_lines = [line.strip() for line in f if line.strip()]
 
         saved_crops_count = 0
         with open(labels_file_path, 'w', encoding='utf-8') as labels_file:
@@ -104,42 +116,29 @@ def wytnij_i_zapisz():
                             px1, py1, px2, py2 = map(int, box.xyxy[0])
 
                             if oblicz_iou([px1, py1, px2, py2], gt_box) >= 0.5:
-                                # 1. Oryginalne wymiary detekcji YOLO
                                 oryg_szer = px2 - px1
-                                oryg_wys = py2 - py1
-
-                                # 2. Obliczamy punkt cięcia
                                 odciecie_px = int(oryg_szer * CROP_LEFT_PERCENT)
                                 nx1 = px1 + odciecie_px
 
-                                # 3. Wycinamy sam "czysty" tekst z obrazka (bez chińskiego, A i kropki)
+                                # Wycinamy obraz - BEZ PADDINGU (przygotowanie pod FT)
                                 plate_crop = img[max(0, py1):min(h_img, py2), max(0, nx1):min(w_img, px2)]
 
                                 if plate_crop.size > 0:
-                                    # 4. Dodajemy czarny padding z lewej strony, by zachować wymiary ramki
-                                    # cv2.copyMakeBorder(obraz, top, bottom, left, right, typ_ramki, kolor)
-                                    plate_crop_padded = cv2.copyMakeBorder(
-                                        plate_crop,
-                                        0, 0, odciecie_px, 0,
-                                        cv2.BORDER_CONSTANT,
-                                        value=(0, 0, 0)  # Czarne tło
-                                    )
-
                                     crop_name = f"{split_name}_crop_{saved_crops_count:06d}.jpg"
 
-                                    # 5. Zapisujemy ZMODYFIKOWANY tekst (ucinamy 2 pierwsze znaki)
-                                    # Np. "皖AD696S" -> "D696S"
+                                    # Ucinamy prowincję i kropkę z tekstu
                                     czysty_tekst = true_txt[2:]
 
-                                    cv2.imwrite(os.path.join(output_dir, crop_name), plate_crop_padded)
+                                    # Zapisujemy
+                                    cv2.imwrite(os.path.join(output_dir, crop_name), plate_crop)
                                     labels_file.write(f"{crop_name}\t{czysty_tekst}\n")
                                     saved_crops_count += 1
                                     break
 
                 if saved_crops_count % 100 == 0:
-                    print(f"    Processed crops: {saved_crops_count}/{LIMITS[split_name]}", end='\r')
+                    print(f"    Wygenerowano: {saved_crops_count}/{len(target_lines)}", end='\r')
 
-    print("\n[+] Done! Datasets are ready and capped.")
+        print(f"\n[+] {split_name} Gotowe! Zapisano {saved_crops_count} sztuk.")
 
 
 if __name__ == "__main__":

@@ -7,9 +7,13 @@ from ultralytics import YOLO
 import easyocr
 
 # --- USTAWIENIA TESTU ---
-MAX_IMAGES = 15  # Limit obrazków do przetworzenia w jednym teście
+MAX_IMAGES = 1000  # Limit obrazków do przetworzenia w jednym teście
 BASE_DIR = 'dataset/CCPD2019/'  # Główny folder datasetu
-TEST_SPLIT_FILE = os.path.join(BASE_DIR, 'splits', 'train.txt')  # Plik z listą testową
+TEST_SPLIT_FILE = os.path.join(BASE_DIR, 'splits', 'test_nowy.txt')  # Testujemy na poprawnym zbiorze!
+
+# Dodaj parametry swojego modelu:
+CUSTOM_MODEL_NAME = 'custom_ccpd_easyOCR'
+CUSTOM_MODEL_DIR = './my_models'
 
 # --- SŁOWNIKI ZNAKÓW CCPD ---
 provinces = ["皖", "沪", "津", "渝", "冀", "晋", "蒙", "辽", "吉", "黑", "苏", "浙", "京", "闽", "赣", "鲁", "豫", "鄂",
@@ -20,82 +24,6 @@ ads = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P', 'Q'
        'Y', 'Z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'O']
 
 # --- AUTOMATYCZNE WYKRYWANIE SPRZĘTU ---
-import re
-
-
-def korekta_chinska(tekst):
-    if not tekst: return ""
-
-    tekst = re.sub(r'[^\w\u4e00-\u9fff]', '', tekst).upper()
-    tekst = tekst.replace('_', '')
-
-    # 1. Znak Prowincji - Mapowanie Halucynacji
-    halucynacje_wan = ['仓', '鲩', '院', '匦', '疏', '脸', '匿', '统', '梳', '流', '充', '祝', '谇', '从', '沈', '杭',
-                       '幽', '蹙', '嗾']
-    for h in halucynacje_wan:
-        tekst = tekst.replace(h, '皖')
-
-    PROWINCJE = ["皖", "沪", "津", "渝", "冀", "晋", "蒙", "辽", "吉", "黑", "苏", "浙", "京", "闽", "赣", "鲁", "豫",
-                 "鄂", "湘", "粤", "桂", "琼", "川", "贵", "云", "藏", "陕", "甘", "青", "宁", "新", "警", "学", "O"]
-
-    idx_prowincji = -1
-    for i, char in enumerate(tekst):
-        if char in PROWINCJE:
-            idx_prowincji = i
-            break
-
-    if idx_prowincji != -1:
-        tekst = tekst[idx_prowincji:]
-    else:
-        # 2. Rekonstrukcja "Zjedzonej" Prowincji
-        # Jeśli brak prowincji, a mamy 6 znaków (np. 4H509P, 1XG2I0)
-        if len(tekst) == 6:
-            tekst = '皖' + tekst
-        elif len(tekst) == 5:
-            # np. C2771 -> brakuje 皖 i jeszcze jednej litery
-            tekst = '皖' + tekst
-        elif len(tekst) >= 7:
-            tekst = '皖' + tekst[-6:]
-
-    # 3. KOREKTA KODU MIASTA (Druga pozycja)
-    if len(tekst) >= 2:
-        nowy_tekst = list(tekst)
-
-        # Halucynacje kropki (Druga pozycja czytana jako chiński znak)
-        if nowy_tekst[1] in ['弘', '丛', '蹙']:
-            nowy_tekst[1] = 'A'
-        elif nowy_tekst[1] in ['吭', '嗾']:
-            nowy_tekst[1] = 'C'
-        # Jeśli wciąż jest tam jakiś chiński znaczek, w CCPD to na 90% A
-        elif '\u4e00' <= nowy_tekst[1] <= '\u9fff':
-            nowy_tekst[1] = 'A'
-
-        # Częste mylenie cyfr z literami na 2. pozycji (np. 4H509P -> AH509P)
-        cyfry_na_litery_miasto = {'4': 'A', '1': 'A', '0': 'C', '8': 'B', '2': 'Z'}
-        if nowy_tekst[1] in cyfry_na_litery_miasto:
-            nowy_tekst[1] = cyfry_na_litery_miasto[nowy_tekst[1]]
-
-        tekst = "".join(nowy_tekst)
-
-    # 4. KOREKTA RESZTY TABLICY (Pozycje 2-7)
-    if len(tekst) >= 3:
-        nowy_tekst = list(tekst)
-        for i in range(2, len(nowy_tekst)):
-            if nowy_tekst[i] == 'O': nowy_tekst[i] = '0'
-            if nowy_tekst[i] == 'I': nowy_tekst[i] = '1'
-            if nowy_tekst[i] == 'Q': nowy_tekst[i] = '0'
-        tekst = "".join(nowy_tekst)
-
-    # 5. Odcięcie doklejonych krawędzi z prawej
-    if len(tekst) == 8 and tekst[-1] in '1IL':
-        tekst = tekst[:-1]
-
-    if len(tekst) > 7:
-        tekst = tekst[:7]
-
-    return tekst
-
-
 def detect_hardware():
     if torch.cuda.is_available():
         return 'cuda', True
@@ -161,7 +89,13 @@ detector = YOLO('yolo11_plate.pt')
 
 print("[*] Ładowanie EasyOCR...")
 # UWAGA: Dodano 'ch_sim', aby czytać chińskie znaki prowincji!
-reader = easyocr.Reader(['ch_sim', 'en'], gpu=use_gpu_ocr)
+reader = easyocr.Reader(
+    lang_list=['en'], # Zostaje sam angielski (alfanumeryczny)
+    recog_network=CUSTOM_MODEL_NAME,
+    user_network_directory=CUSTOM_MODEL_DIR,
+    model_storage_directory=CUSTOM_MODEL_DIR,
+    gpu=use_gpu_ocr
+)
 
 # --- ZMIENNE DO STATYSTYK ---
 TP, FP, FN = 0, 0, 0
@@ -211,53 +145,37 @@ try:
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                 pred_boxes.append([x1, y1, x2, y2])
 
-                # --- KROK 1: CIĘCIE (Wracamy do ustawień z wersji 20%!) ---
+                # --- KROK 1: CIĘCIE (Wracamy do ustawień z treningu!) ---
                 szerokosc = x2 - x1
-                wysokosc = y2 - y1
 
-                # Ucinamy z obu stron, by pozbyć się krawędzi ramki (szczególnie z prawej)
-                nowe_x1 = int(x1 + (szerokosc * 0.02))
-                nowe_x2 = int(x2 - (szerokosc * 0.04))
-                nowe_y1 = int(y1 + (wysokosc * 0.04))
-                nowe_y2 = int(y2 - (wysokosc * 0.04))
+                # Odcinamy DOKŁADNIE 37% z lewej strony, bo tak model był trenowany
+                nowe_x1 = int(x1 + (szerokosc * 0.37))
 
-                plate_crop = img[max(0, nowe_y1):min(h_img, nowe_y2), max(0, nowe_x1):min(w_img, nowe_x2)]
+                plate_crop = img[max(0, y1):min(h_img, y2), max(0, nowe_x1):min(w_img, x2)]
 
                 if plate_crop.size == 0:
                     pred_texts.append("")
                     continue
 
-                # --- KROK 2: CZYSTY PRE-PROCESSING ---
+                # --- KROK 2: PRE-PROCESSING ---
+                # Usunąłem blura i normalizację! Model uczył się na surowych kadrach,
+                # więc dodawanie filtrów zaburzyłoby to, co "widzą" zamrożone wagi VGG.
                 gray = cv2.cvtColor(plate_crop, cv2.COLOR_BGR2GRAY)
-                gray = cv2.normalize(gray, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
-                # MedianBlur świetnie rozmywa "pieprz i sól" oraz białą kropkę działową
-                gray = cv2.medianBlur(gray, 3)
 
                 t_start_ocr = time.perf_counter()
 
-                # Używamy tylko sprawdzonego mag_ratio=2.0
-                ocr_results = reader.readtext(gray, detail=1, mag_ratio=2.0)
+                # --- KROK 3: EASYOCR ---
+                # Używamy detail=0. Wytrenowany model nie poszatkuje już tekstu,
+                # tylko zwróci od razu elegancką listę tekstów (zazwyczaj jednoelementową).
+                ocr_results = reader.readtext(
+                    gray,
+                    detail=0,
+                    allowlist='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+                )
                 total_ocr_time += (time.perf_counter() - t_start_ocr)
 
-                # --- KROK 3: WYDOBYCIE ---
-                czyste_kawalki = []
-                crop_h = plate_crop.shape[0]
-
-                if crop_h > 0:
-                    for bbox, text, prob in ocr_results:
-                        tekst = text.replace(" ", "").upper()
-                        box_h = bbox[2][1] - bbox[0][1]
-
-                        if (box_h / crop_h) < 0.20: continue
-                        if len(tekst) == 1 and prob < 0.25: continue
-
-                        czyste_kawalki.append((bbox[0][0], tekst))
-
-                czyste_kawalki.sort(key=lambda x: x[0])
-                read_text = "".join([k[1] for k in czyste_kawalki])
-
-                # --- KROK 4: KOREKTA SŁOWNIKOWA ---
-                read_text = korekta_chinska(read_text)
+                # Sklejamy wynik do jednego stringa i usuwamy ewentualne spacje
+                read_text = "".join(ocr_results).replace(" ", "").upper()
 
                 pred_texts.append(read_text)
 
@@ -279,7 +197,7 @@ try:
                 matched_gt.add(best_gt_idx)
 
                 # Ocena OCR
-                true_txt = gt_texts[best_gt_idx]
+                true_txt = gt_texts[best_gt_idx][2:] # Ucinamy 2 pierwsze znaki dla sprawiedliwego porównania
                 pred_txt = pred_texts[p_idx]
 
                 if true_txt:

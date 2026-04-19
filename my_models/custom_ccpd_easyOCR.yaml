@@ -1,0 +1,76 @@
+#experiment_name: 'plate_recognizer_finetune_final'
+#train_data: 'all_data/train_ocr_ccpd'
+#valid_data: 'all_data/test_ocr_ccpd'
+#manualSeed: 1111
+#workspace: 'saved_models'
+#
+## --- ALFABET (Pełny zestaw znaków) ---
+#lang_list: ['en']
+#number: '0123456789'
+#symbol: ''
+#lang_char: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+#character_list: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+#character: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+#
+## --- MODEL BAZOWY I STRATEGIA FINE-TUNINGU ---
+#saved_model: 'saved_models/english_g2.pth'
+#FT: True
+#
+## Zamrażamy warstwy wizualne (VGG), trenujemy sekwencję i predykcję
+#freeze_FeatureFxtraction: True
+#freeze_SequenceModeling: False
+#
+## --- DANE ---
+#select_data: '/'
+#batch_ratio: '1'
+#total_data_usage_ratio: 1.0
+#
+## --- ARCHITEKTURA MODELU ---
+#Transformation: 'None'   # Stabilne rozwiązanie dla wyciętych tablic
+#num_fiducial: 20       # Parametr wymagany przez parser, nawet przy Transformation: None
+#FeatureExtraction: 'VGG'
+#SequenceModeling: 'BiLSTM'
+#Prediction: 'CTC'
+#
+## --- PARAMETRY SIECI ---
+#input_channel: 1
+#output_channel: 256
+#hidden_size: 256
+#imgH: 32
+#imgW: 65                # Dostosowane do uciętych obrazków (~65% oryginalnej szerokości)
+#
+## --- PARAMETRY TRENINGU ---
+#optim: 'adadelta'       # Najbardziej stabilny dla CRNN
+#lr: 1.0                 # Standardowy krok dla Adadelta w Fine-Tuningu
+#rho: 0.95
+#eps: 0.00000001
+#grad_clip: 5
+#
+#batch_max_length: 10    # Twoje tablice mają teraz tylko 5-6 znaków
+#PAD: True               # Wypełnia brakujące miejsce, jeśli obrazek jest jeszcze węższy
+#contrast_adjust: 0.1
+#rgb: False
+#sensitive: True         # KRYTYCZNE: Wielkość liter ma znaczenie dla dopasowania alfabetu
+#data_filtering_off: True
+#new_prediction: False
+#decode: 'greedy'
+#
+#num_iter: 10000
+#valInterval: 500        # Częstsza walidacja, żebyś widział postępy
+#batch_size: 32
+#workers: 0
+#
+
+# --- WYMAGANE PARAMETRY JĘZYKOWE ---
+lang_list:
+  - 'en'
+character_list: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
+# --- PARAMETRY SIECI (Tego brakowało!) ---
+network_params:
+  input_channel: 1
+  output_channel: 256
+  hidden_size: 256
+
+# --- ROZMIAR WEJŚCIOWY ---
+imgH: 32
