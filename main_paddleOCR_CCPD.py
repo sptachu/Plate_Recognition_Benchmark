@@ -116,6 +116,44 @@ def postprocess_plate(raw_text, target_len=5):
     return "".join(char_list)
 
 
+def wazony_levenshtein(s1, s2):
+    # Profesjonalne wagi dla systemów OCR na tablicach rejestracyjnych.
+    # Wartość 1.0 to standardowy błąd. Mniejsze wartości to "taryfa ulgowa".
+    kary = {
+        ('0', 'O'): 0.1, ('O', 'Q'): 0.2, ('0', 'Q'): 0.2,
+        ('D', '0'): 0.2, ('D', 'O'): 0.2, ('8', 'B'): 0.2,
+        ('1', 'I'): 0.2, ('1', 'T'): 0.3, ('I', 'T'): 0.3,
+        ('1', 'L'): 0.3, ('5', 'S'): 0.2, ('2', 'Z'): 0.2,
+        ('A', '4'): 0.3, ('G', '6'): 0.3, ('U', 'V'): 0.3,
+        ('P', 'R'): 0.3, ('E', 'F'): 0.3, ('E', 'B'): 0.4,
+        ('M', 'N'): 0.4, ('K', 'X'): 0.4
+    }
+
+    n, m = len(s1), len(s2)
+    dp = [[0.0] * (m + 1) for _ in range(n + 1)]
+
+    for i in range(n + 1): dp[i][0] = float(i)
+    for j in range(m + 1): dp[0][j] = float(j)
+
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            if s1[i - 1] == s2[j - 1]:
+                koszt = 0.0
+            else:
+                # Szuka kary niezależnie od tego, czy OCR zamienił 8 na B, czy B na 8
+                para = (s1[i - 1], s2[j - 1])
+                para_odw = (s2[j - 1], s1[i - 1])
+                koszt = kary.get(para, kary.get(para_odw, 1.0))
+
+            dp[i][j] = min(
+                dp[i - 1][j] + 1.0,  # usunięcie
+                dp[i][j - 1] + 1.0,  # wstawienie
+                dp[i - 1][j - 1] + koszt  # zamiana z wagą
+            )
+
+    return dp[n][m]
+
+
 # --- INICJALIZACJA MODELI ---
 device_yolo, use_gpu_ocr = detect_hardware()
 print("[*] Ładowanie YOLO11...")
@@ -129,6 +167,7 @@ reader = PaddleOCR(lang="ch", use_angle_cls=False, use_gpu=False, show_log=False
 TP, FP, FN = 0, 0, 0
 exact_matches = 0
 total_cer = 0.0
+total_weighted_cer = 0.0
 ocr_evaluated_count = 0
 
 total_yolo_time, total_ocr_time, total_e2e_time = 0.0, 0.0, 0.0
@@ -238,6 +277,8 @@ try:
                 if true_txt:
                     ocr_evaluated_count += 1
                     edit_dist = Levenshtein.distance(true_txt, pred_txt)
+                    weighted_edit_dist = wazony_levenshtein(true_txt, pred_txt)
+                    total_weighted_cer += weighted_edit_dist / len(true_txt) if len(true_txt) > 0 else 1.0
                     if true_txt == pred_txt:
                         exact_matches += 1
                         print(f"✅ TRAFIENIE! Odczytano idealnie: '{pred_txt}'")
@@ -274,6 +315,7 @@ finally:
 
         plate_acc = (exact_matches / ocr_evaluated_count * 100) if ocr_evaluated_count > 0 else 0.0
         avg_cer = (total_cer / ocr_evaluated_count) if ocr_evaluated_count > 0 else 0.0
+        avg_weighted_cer = (total_weighted_cer / ocr_evaluated_count) if ocr_evaluated_count > 0 else 0.0
 
         # --- WYŚWIETLENIE RAPORTU W KONSOLI ---
         print("\n==================================================")
@@ -288,6 +330,7 @@ finally:
         print("\n--- [2] Trafność Rozpoznawania (PaddleOCR) ---")
         print(f"Plate-level Accuracy (Exact Match): {plate_acc:.2f}%")
         print(f"Character Error Rate (CER):         {avg_cer:.4f}")
+        print(f"Weighted CER (uwzgl. wizualne):     {avg_weighted_cer:.4f}")
         print("\n--- [3] Wydajność (Latency) ---")
         print(f"Średni czas inferencji detektora:   {avg_yolo_ms:.2f} ms / obraz")
         print(f"Średni czas inferencji OCR:         {avg_ocr_ms:.2f} ms / obraz")
@@ -324,6 +367,7 @@ finally:
             f.write(f"F1:{F1}\n")
             f.write(f"Plate_Accuracy:{plate_acc}\n")
             f.write(f"CER:{avg_cer}\n")
+            f.write(f"Weighted_CER:{avg_weighted_cer}\n")
             f.write(f"YOLO_ms:{avg_yolo_ms}\n")
             f.write(f"OCR_ms:{avg_ocr_ms}\n")
             f.write(f"E2E_ms:{avg_e2e_ms}\n")
