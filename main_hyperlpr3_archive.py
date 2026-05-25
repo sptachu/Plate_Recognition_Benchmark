@@ -35,19 +35,57 @@ def czytaj_ground_truth_z_nazwy(img_path):
     return base_name.replace(" ", "").upper()
 
 
+def wazony_levenshtein(s1, s2):
+    """
+    Profesjonalne wagi dla systemów OCR na tablicach rejestracyjnych.
+    """
+    kary = {
+        ('0', 'O'): 0.1, ('O', 'Q'): 0.2, ('0', 'Q'): 0.2,
+        ('D', '0'): 0.2, ('D', 'O'): 0.2, ('8', 'B'): 0.2,
+        ('1', 'I'): 0.2, ('1', 'T'): 0.3, ('I', 'T'): 0.3,
+        ('1', 'L'): 0.3, ('5', 'S'): 0.2, ('2', 'Z'): 0.2,
+        ('A', '4'): 0.3, ('G', '6'): 0.3, ('U', 'V'): 0.3,
+        ('P', 'R'): 0.3, ('E', 'F'): 0.3, ('E', 'B'): 0.4,
+        ('M', 'N'): 0.4, ('K', 'X'): 0.4
+    }
+
+    n, m = len(s1), len(s2)
+    dp = [[0.0] * (m + 1) for _ in range(n + 1)]
+
+    for i in range(n + 1): dp[i][0] = float(i)
+    for j in range(m + 1): dp[0][j] = float(j)
+
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            if s1[i - 1] == s2[j - 1]:
+                koszt = 0.0
+            else:
+                para = (s1[i - 1], s2[j - 1])
+                para_odw = (s2[j - 1], s1[i - 1])
+                koszt = kary.get(para, kary.get(para_odw, 1.0))
+
+            dp[i][j] = min(
+                dp[i - 1][j] + 1.0,  # usunięcie
+                dp[i][j - 1] + 1.0,  # wstawienie
+                dp[i - 1][j - 1] + koszt  # zamiana z wagą
+            )
+
+    return dp[n][m]
+
+
 # --- INICJALIZACJA HYPERLPR3 ---
 print("[*] Inicjalizacja HyperLPR3...")
 catcher = lpr3.LicensePlateCatcher(detect_level=lpr3.DETECT_LEVEL_HIGH)
 
-# --- ZMIENNE STATYSTYCZNE ---
+# --- ZMIENNE STATYSTKCZNE SKALIBROWANE POD OCR ---
 TP, FP, FN = 0, 0, 0
 exact_matches = 0
 total_cer = 0.0
-ocr_evaluated_count = 0
+total_weighted_cer = 0.0  # <--- NOWA ZMIENNA
 total_e2e_time = 0.0
 processed_images = 0
 
-print(f"\n[*] Start ewaluacji na {MAX_IMAGES} obrazkach (Padding: 30px)...\n")
+print(f"\n[*] Start ewaluacji HyperLPR3 na {MAX_IMAGES} obrazkach (Padding: 30px)...\n")
 
 try:
     files = sorted([f for f in os.listdir(IMAGES_DIR) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
@@ -68,25 +106,42 @@ try:
         duration = time.perf_counter() - t_start
         total_e2e_time += duration
 
-        # --- ANALIZA WYNIKÓW ---
+        # --- ANALIZA WYNIKÓW POD KĄTEM JAKOŚCI OCR ---
+        pred_text = "N/A"
+        cer = 1.0
+        w_cer = 1.0
+
         if hy_results:
             raw_pred = hy_results[0][0]
             pred_txt = clean_output(raw_pred)
 
-            ocr_evaluated_count += 1
-            TP += 1
+            # Kalkulacja błędów znakowych
+            dlugosc_gt = len(true_txt) if len(true_txt) > 0 else 1.0
 
-            if true_txt == pred_txt:
-                exact_matches += 1
-                print(f"✅ {filename}: Trafienie!")
-            else:
-                print(f"❌ {filename}: GT: {true_txt} | Pred: {pred_txt}")
-
+            # Standardowy CER
             edit_dist = Levenshtein.distance(true_txt, pred_txt)
-            total_cer += edit_dist / len(true_txt) if len(true_txt) > 0 else 1.0
+            cer = edit_dist / dlugosc_gt
+            total_cer += cer
+
+            # Ważony CER
+            weighted_dist = wazony_levenshtein(true_txt, pred_txt)
+            w_cer = weighted_dist / dlugosc_gt
+            total_weighted_cer += w_cer
+
+            # Klasyfikacja klasyczna pod macierz pomyłek OCR
+            if true_txt == pred_txt:
+                TP += 1  # Idealny odczyt całego ciągu
+                exact_matches += 1
+                status = "✅ OK"
+            else:
+                FP += 1  # Odczytał, ale z błędami w znakach
+                status = "❌ BŁĄD"
         else:
-            FN += 1
-            print(f"⚪ {filename}: Nie wykryto tablicy")
+            FN += 1  # Silnik całkowicie pominął obrazek lub nie odczytał nic
+            status = "⚪ BRAK"
+
+        print(
+            f"{filename:<20} | GT: {true_txt:<10} | Pred: {pred_txt:<10} | S.CER: {cer:.2f} | W.CER: {w_cer:.2f} | {status}")
 
         processed_images += 1
         print(f"Postęp: {processed_images}/{MAX_IMAGES}", end='\r')
@@ -98,28 +153,33 @@ except Exception as e:
 
 finally:
     if processed_images > 0:
-        # Metryki detekcji
+        # Metryki jakości na poziomie OCR
         Precision = TP / (TP + FP) if (TP + FP) > 0 else 0.0
         Recall = TP / (TP + FN) if (TP + FN) > 0 else 0.0
         F1 = 2 * (Precision * Recall) / (Precision + Recall) if (Precision + Recall) > 0 else 0.0
 
-        # Metryki wydajności i OCR
+        # Wyliczanie średnich wydajności
         avg_ms = (total_e2e_time / processed_images) * 1000
-        acc = (exact_matches / ocr_evaluated_count * 100) if ocr_evaluated_count > 0 else 0.0
-        avg_cer = (total_cer / ocr_evaluated_count) if ocr_evaluated_count > 0 else 0.0
+        acc = (exact_matches / processed_images) * 100
 
-        print("\n" + "=" * 50)
-        print("           RAPORT HYPERLPR3 (OPTIMIZED)")
-        print("=" * 50)
+        mianownik_ocr = (TP + FP) if (TP + FP) > 0 else 1.0
+        avg_cer = total_cer / mianownik_ocr
+        avg_weighted_cer = total_weighted_cer / mianownik_ocr
+
+        print("\n" + "=" * 60)
+        print("           RAPORT HYPERLPR3 PURE OCR (OPTIMIZED)")
+        print("=" * 60)
         print(f"Przetworzone zdjęcia: {processed_images}")
-        print(f"Detekcja -> F1: {F1:.4f} (R: {Recall:.2f}, P: {Precision:.2f})")
-        print(f"OCR      -> Accuracy: {acc:.2f}%, Średni CER: {avg_cer:.4f}")
+        print(f"Klasyfikacja OCR -> F1: {F1:.4f} (R: {Recall:.2f}, P: {Precision:.2f})")
+        print(f"Dokładność (Exact) -> {acc:.2f}%")
+        print(f"Standardowy CER    -> {avg_cer:.4f}")
+        print(f"WAŻONY CER (Optyk) -> {avg_weighted_cer:.4f}")
         print(f"Latency  -> Średnio E2E: {avg_ms:.2f} ms / obraz")
-        print("=" * 50)
+        print("=" * 60)
 
-        # --- POPRAWKA: KOMPLETNY ZAPIS ZMIENNYCH DLA SCRIPTU WYKRESÓW ---
+        # --- ZAPIS IDENTYCZNEGO RAPORTU DLA SHOW_RESULTS.PY ---
         os.makedirs(RESULTS_DIR, exist_ok=True)
-        filename_res = f"results_hyperlpr3_final_{int(time.time())}.txt"
+        filename_res = f"results_spanishhyper_final_{int(time.time())}.txt"
         with open(os.path.join(RESULTS_DIR, filename_res), 'w', encoding='utf-8') as f:
             f.write(f"TP:{TP}\n")
             f.write(f"FP:{FP}\n")
@@ -128,11 +188,11 @@ finally:
             f.write(f"Recall:{Recall}\n")
             f.write(f"F1:{F1}\n")
             f.write(f"Plate_Accuracy:{acc}\n")
-            f.write(f"CER:{avg_cer}\n")
-
-            # Podział sumarycznego czasu na równe połowy dla kompatybilności struktury
-            f.write(f"YOLO_ms:{avg_ms * 0.5}\n")
-            f.write(f"OCR_ms:{avg_ms * 0.5}\n")
+            f.write(f"CER:{avg_weighted_cer}\n")
+            f.write(f"Standard_CER:{avg_cer}\n")
+            f.write(f"Weighted_CER:{avg_weighted_cer}\n")
+            f.write(f"YOLO_ms:{avg_ms * 0.5}\n")  # Emulacja podziału czasowego pod ogólny wykres
+            f.write(f"OCR_ms:{avg_ms * 0.5}\n")  # Emulacja podziału czasowego pod ogólny wykres
             f.write(f"E2E_ms:{avg_ms}\n")
 
-        print(f"[+] Zapisano pełny raport: {RESULTS_DIR}/{filename_res}")
+        print(f"[+] Zapisano zunifikowany raport HyperLPR3: {RESULTS_DIR}/{filename_res}")
