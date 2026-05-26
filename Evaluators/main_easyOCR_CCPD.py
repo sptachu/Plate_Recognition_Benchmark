@@ -13,7 +13,7 @@ TEST_SPLIT_FILE = os.path.join(BASE_DIR, 'splits', 'new_test.txt')  # Testujemy 
 
 # Dodaj parametry swojego modelu:
 CUSTOM_MODEL_NAME = 'custom_ccpd_easyOCR'
-CUSTOM_MODEL_DIR = './my_models'
+CUSTOM_MODEL_DIR = './Models/easyOCR'
 
 # --- SŁOWNIKI ZNAKÓW CCPD ---
 provinces = ["皖", "沪", "津", "渝", "冀", "晋", "蒙", "辽", "吉", "黑", "苏", "浙", "京", "闽", "赣", "鲁", "豫", "鄂",

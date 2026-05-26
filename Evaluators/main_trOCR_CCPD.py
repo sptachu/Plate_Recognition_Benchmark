@@ -144,8 +144,8 @@ detector = YOLO('yolo11_plate.pt')
 print("[*] Ładowanie TrOCR...")
 
 device_ocr = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-processor = TrOCRProcessor.from_pretrained("./trocr-license-plates-CCPD/final_model")
-reader = VisionEncoderDecoderModel.from_pretrained("./trocr-license-plates-CCPD/final_model")
+processor = TrOCRProcessor.from_pretrained("./Models/trOCR/CCPD")
+reader = VisionEncoderDecoderModel.from_pretrained("./Models/trOCR/CCPD")
 reader.to(device_ocr)
 
 # Allowed characters
