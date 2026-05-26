@@ -7,7 +7,7 @@ import hyperlpr3 as lpr3
 
 # --- USTAWIENIA TESTU ---
 MAX_IMAGES = 1000
-IMAGES_DIR = 'dataset/archive/dataset_final/train/'
+IMAGES_DIR = 'dataset/UC3M-LP/test//'
 RESULTS_DIR = "results"
 
 

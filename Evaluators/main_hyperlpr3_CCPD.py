@@ -8,7 +8,7 @@ import hyperlpr3 as lpr3
 
 # --- KONFIGURACJA CCPD ---
 MAX_IMAGES = 1000
-IMAGES_DIR = 'dataset/CCPD2019/ccpd_base/'  # Zmień na swoją ścieżkę
+IMAGES_DIR = 'dataset/CCPD2019/CCPD2019/ccpd_base/'  # Zmień na swoją ścieżkę
 RESULTS_DIR = "results"
 
 # Mapowanie indeksów CCPD na znaki

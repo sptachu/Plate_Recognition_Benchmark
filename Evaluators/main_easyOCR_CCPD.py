@@ -8,8 +8,8 @@ import easyocr
 
 # --- USTAWIENIA TESTU ---
 MAX_IMAGES = 1000  # Limit obrazków do przetworzenia w jednym teście
-BASE_DIR = 'dataset/CCPD2019/'  # Główny folder datasetu
-TEST_SPLIT_FILE = os.path.join(BASE_DIR, 'splits', 'test_nowy.txt')  # Testujemy na poprawnym zbiorze!
+BASE_DIR = 'dataset/CCPD2019/CCPD2019/'  # Główny folder datasetu
+TEST_SPLIT_FILE = os.path.join(BASE_DIR, 'splits', 'new_test.txt')  # Testujemy na poprawnym zbiorze!
 
 # Dodaj parametry swojego modelu:
 CUSTOM_MODEL_NAME = 'custom_ccpd_easyOCR'

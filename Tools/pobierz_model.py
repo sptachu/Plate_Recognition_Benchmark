@@ -2,7 +2,7 @@ import urllib.request
 
 # Link do udostępnionego, wytrenowanego modelu YOLO11n (wersja Nano - ultraszybka) na tablice
 url = "https://huggingface.co/DFK1991/yolov11n_car_plates_detector/resolve/main/best_n.pt"
-nazwa_pliku = "yolo11_plate.pt"
+nazwa_pliku = "yolo11_plateTEST.pt"
 
 print(f"Rozpoczynam pobieranie modelu YOLO11... Proszę czekać.")
 

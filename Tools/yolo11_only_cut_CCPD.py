@@ -6,12 +6,12 @@ import glob
 from ultralytics import YOLO
 
 # --- USTAWIENIA ---
-ROOT_DATA_DIR = 'dataset/CCPD2019/'
+ROOT_DATA_DIR = 'dataset/CCPD2019/CCPD2019/'
 
 # ZMIANA: Dokładnie te pliki, które przed chwilą wygenerował Twój pierwszy skrypt!
 SPLIT_FILES = {
-    'train': 'dataset/CCPD2019/splits/train_nowy.txt',
-    'test': 'dataset/CCPD2019/splits/test_nowy.txt'
+    'train': 'dataset/CCPD2019/CCPD2019/splits/train_nowy.txt',
+    'test': 'dataset/CCPD2019/CCPD2019/splits/test_nowy.txt'
 }
 
 # --- LIMITS ---
