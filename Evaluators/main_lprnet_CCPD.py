@@ -5,11 +5,11 @@ import torch
 import numpy as np
 import Levenshtein
 from ultralytics import YOLO
-from Models.lprnet.model_lprnet.LPRNet import build_lprnet
+from model_lprnet.LPRNet import build_lprnet
 
 # --- KONFIGURACJA CCPD ---
 YOLO_MODEL = 'yolo11_plate.pt'
-LPR_MODEL = './Models/lprnet/weights_lprnet/Final_LPRNet_model.pth'
+LPR_MODEL = './weights_lprnet/Final_LPRNet_model.pth'
 IMAGES_DIR = './dataset/CCPD2019/CCPD2019/ccpd_base/'
 RESULTS_DIR = "results"
 MAX_IMAGES = 1000

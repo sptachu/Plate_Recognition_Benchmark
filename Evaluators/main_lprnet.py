@@ -7,12 +7,12 @@ import json
 import re
 import Levenshtein
 from ultralytics import YOLO
-from Models.lprnet.model_lprnet.LPRNet import build_lprnet
-from Tools.load_data import CHARS
+from model_lprnet.LPRNet import build_lprnet
+from load_data import CHARS
 
 # --- KONFIGURACJA ---
 YOLO_MODEL = 'yolo11_plate.pt'
-LPR_MODEL = './Models/lprnet/weights_lprnet/europe/LPRNet_Euro_Epoch_100.pth'
+LPR_MODEL = './weights_lprnet/europe/LPRNet_Euro_Epoch_100.pth'
 TEST_IMAGES_DIR = './dataset/UC3M-LP/test/'  # Folder ze zdjęciami i JSONami
 RESULTS_DIR = "results"
 IMG_SIZE = [94, 24]

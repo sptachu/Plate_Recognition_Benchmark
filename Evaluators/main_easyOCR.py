@@ -233,7 +233,7 @@ print("[*] Ładowanie YOLO11...")
 detector = YOLO('yolo11_plate.pt')
 print("[*] Ładowanie własnego silnika PyTorch (VGG)...")
 ALFABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-MODEL_PATH = './Models/easyOCR/custom_uc3m.pth'
+MODEL_PATH = './my_models/custom_uc3m.pth'
 rozpoznawacz = CzystyRozpoznawacz(MODEL_PATH, ALFABET)
 
 # --- ZMIENNE DO STATYSTYK ---

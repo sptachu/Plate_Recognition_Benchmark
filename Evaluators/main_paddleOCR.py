@@ -116,7 +116,7 @@ print("[*] Ładowanie PaddleOCR...")
 
 # 2. Use the updated argument names
 reader = PaddleOCR(
-    rec_model_dir="./Models/paddleOCR",
+    rec_model_dir="./inference_model/",
     rec_char_dict_path="./lp_dict.txt",
     use_angle_cls=False,
     use_gpu=use_gpu_ocr
