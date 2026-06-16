@@ -6,7 +6,7 @@ import Levenshtein
 import torch
 from ultralytics import YOLO
 from PIL import Image
-from transformers import TrOCRProcessor, VisionEncoderDecoderModel, LogitsProcessor, LogitsProcessorList
+from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 
 # --- USTAWIENIA TESTU ---
 MAX_IMAGES = 400  # Limit obrazków do przetworzenia w jednym teście
@@ -66,50 +66,6 @@ def czytaj_ground_truth_json(json_path):
 
     return gt_boxes, gt_texts
 
-# Needed for allowed characters
-class SpanishPlateProcessor(LogitsProcessor):
-    def __init__(self, tokenizer):
-        self.tokenizer = tokenizer
-        vocab_size = len(tokenizer)
-        
-        # Pre-calculate which tokens are "just numbers" and "just valid letters"
-        self.digits = []
-        for i in range(vocab_size):
-            t = tokenizer.decode([i]).strip()
-            if t.isdigit() and len(t) == 1:
-                self.digits.append(i)
-                
-        valid_letters = "BCDFGHJKLMNPRSTVWXYZ"
-        self.letters = []
-        for i in range(vocab_size):
-            t = tokenizer.decode([i]).strip().upper()
-            if t in valid_letters and len(t) == 1:
-                self.letters.append(i)
-        
-        self.eos_token_id = tokenizer.eos_token_id
-
-    def __call__(self, input_ids, scores):
-        # TrOCR usually has a decoder_start_token, so we count from after that.
-        # If input_ids is [<s>], curr_len is 0.
-        curr_len = input_ids.shape[1] - 1 
-
-        # 1. Start by blocking EVERYTHING
-        mask = torch.full_like(scores, float("-inf"))
-
-        if curr_len < 3:
-            # POS 0, 1, 2: MUST BE DIGITS
-            mask[:, self.digits] = 0
-        elif 3 <= curr_len < 5:
-            # POS 3, 4: MUST BE LETTERS
-            mask[:, self.letters] = 0
-        else:
-            # POS 5: MUST STOP (FORCE EOS)
-            mask[:, self.eos_token_id] = 0
-            
-        return scores + mask.to(scores.device)
-
-
-
 def wazony_levenshtein(s1, s2):
     # Profesjonalne wagi dla systemów OCR na tablicach rejestracyjnych.
     # Wartość 1.0 to standardowy błąd. Mniejsze wartości to "taryfa ulgowa".
@@ -157,9 +113,6 @@ device_ocr = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 processor = TrOCRProcessor.from_pretrained("./trocr-license-plates/final_model")
 reader = VisionEncoderDecoderModel.from_pretrained("./trocr-license-plates/final_model")
 reader.to(device_ocr)
-
-# Allowed characters
-spanish_logic = LogitsProcessorList([SpanishPlateProcessor(processor.tokenizer)])
 
 # --- ZMIENNE DO STATYSTYK ---
 TP, FP, FN = 0, 0, 0
@@ -211,15 +164,6 @@ try:
                 pad = -15 # pixels
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
 
-                # width = x2 - x1
-                # height = y2 - y1
-
-                # crop_x1 = int(x1 + (width * 0.09))
-                # crop_y1 = max(0, y1 - pad)
-                # crop_x2 = min(w_img, x2 + pad)
-                # crop_y2 = min(h_img, y2 + pad)
-
-                # plate_crop = img[crop_y1:crop_y2, crop_x1:crop_x2]
                 plate_crop = img[y1:y2, x1:x2]
 
 
@@ -235,11 +179,10 @@ try:
                 pixel_values = pixel_values.to(device_ocr)
                 generated_ids = reader.generate(
                     pixel_values, 
-                    # logits_processor=spanish_logic,
-                    num_beams=1,           # <-- CHANGE THIS TO 1
+                    num_beams=1,
                     max_new_tokens=5,      
                     min_new_tokens=5,      
-                    early_stopping=True    # You can actually remove this if num_beams=1
+                    early_stopping=True
                 )
                 ocr_results = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
                 total_ocr_time += (time.perf_counter() - t_start_ocr)
@@ -247,7 +190,6 @@ try:
                 raw_text = "".join(ocr_results).replace(" ", "").upper()
                 read_text = raw_text[:5]
                 
-                # read_text = "".join(ocr_results).replace(" ", "").upper()
                 pred_texts.append(read_text)
 
         total_e2e_time += (time.perf_counter() - t_start_e2e)
