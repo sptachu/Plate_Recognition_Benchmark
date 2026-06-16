@@ -161,7 +161,7 @@ detector = YOLO('yolo11_plate.pt')
 print("[*] Ładowanie PaddleOCR...")
 
 # Inicjalizacja domyślnego modelu chińskiego PP-OCRv4 (obsługuje prowincje i znaki alfanumeryczne)
-reader = PaddleOCR(lang="ch", use_angle_cls=False, use_gpu=use_gpu_ocr, show_log=False)
+reader = PaddleOCR(lang="ch", use_angle_cls=False, use_gpu=False, show_log=False)
 
 # --- ZMIENNE DO STATYSTYK ---
 TP, FP, FN = 0, 0, 0

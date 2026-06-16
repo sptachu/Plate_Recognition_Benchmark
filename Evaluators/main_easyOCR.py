@@ -11,7 +11,7 @@ import numpy as np
 from easyocr.model.vgg_model import Model
 
 # --- USTAWIENIA TESTU ---
-MAX_IMAGES = 400  # Limit obrazków do przetworzenia w jednym teście
+MAX_IMAGES = 349  # Limit obrazków do przetworzenia w jednym teście
 IMAGES_DIR = 'dataset/UC3M-LP/test/'  # ścieżka do folderu ze zdjęciami
 LABELS_DIR = 'dataset/UC3M-LP/test/'  # ścieżka do folderu z plikami JSON
 
