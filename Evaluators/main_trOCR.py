@@ -110,8 +110,8 @@ print("[*] Ładowanie YOLO11...")
 detector = YOLO('yolo11_plate.pt')
 print("[*] Ładowanie TrOCR...")
 device_ocr = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-processor = TrOCRProcessor.from_pretrained("./trocr-license-plates/final_model")
-reader = VisionEncoderDecoderModel.from_pretrained("./trocr-license-plates/final_model")
+processor = TrOCRProcessor.from_pretrained("./Models/trOCR/UC3M")
+reader = VisionEncoderDecoderModel.from_pretrained("./Models/trOCR/UC3M")
 reader.to(device_ocr)
 
 # --- ZMIENNE DO STATYSTYK ---

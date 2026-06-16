@@ -9,8 +9,8 @@ import time
 import argparse
 
 # Importy z Twojego projektu
-from model_lprnet.LPRNet import build_lprnet
-from load_data import LPRDataLoader, CHARS
+from Models.lprnet.model_lprnet.LPRNet import build_lprnet
+from Tools.load_data import LPRDataLoader, CHARS
 
 
 def fast_decode(preds, chars):
