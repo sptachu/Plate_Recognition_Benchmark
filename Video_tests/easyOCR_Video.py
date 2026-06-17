@@ -96,7 +96,7 @@ try:
                 # --- WIZUALIZACJA NA OKIENKU WIDEO ---
                 if read_text:
                     # Rysowanie ramki wokół wykrytej tablicy rejestracyjnej
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
                     
                     # Tło pod tekst dla poprawy czytelności
                     (text_w, text_h), _ = cv2.getTextSize(read_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
