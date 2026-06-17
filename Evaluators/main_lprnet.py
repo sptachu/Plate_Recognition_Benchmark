@@ -11,10 +11,10 @@ from Models.lprnet.model_lprnet.LPRNet import build_lprnet
 from Tools.load_data import CHARS
 
 # --- KONFIGURACJA ---
-YOLO_MODEL = 'yolo11_plate.pt'
-LPR_MODEL = './Models/lprnet/weights_lprnet/europe/LPRNet_Euro_Epoch_100.pth'
-TEST_IMAGES_DIR = './dataset/UC3M-LP/test/'  # Folder ze zdjęciami i JSONami
-RESULTS_DIR = "results"
+YOLO_MODEL = '../yolo11_plate.pt'
+LPR_MODEL = '../Models/lprnet/weights_lprnet/europe/LPRNet_Euro_Epoch_100.pth'
+TEST_IMAGES_DIR = '../dataset/UC3M-LP/test/'  # Folder ze zdjęciami i JSONami
+RESULTS_DIR = "../results"
 IMG_SIZE = [94, 24]
 
 
@@ -211,14 +211,31 @@ class LPRNetJsonBenchmark:
                 f.write(f"Recall:{Recall}\n")
                 f.write(f"F1:{F1}\n")
                 f.write(f"Plate_Accuracy:{acc}\n")
-                f.write(f"CER:{avg_weighted_cer}\n")  # Zachowane jako główny CER dla starych skryptów
-                f.write(f"Standard_CER:{avg_cer}\n")  # <--- WPIS DLA NOWEGO WYKRESU
+                f.write(f"CER:{avg_cer}\n")  # <--- WPIS DLA NOWEGO WYKRESU
                 f.write(f"Weighted_CER:{avg_weighted_cer}\n")  # <--- WPIS DLA NOWEGO WYKRESU
                 f.write(f"YOLO_ms:{yolo_ms}\n")
                 f.write(f"OCR_ms:{ocr_ms}\n")
                 f.write(f"E2E_ms:{e2e_ms}\n")
 
             print(f"[+] Zapisano zunifikowany raport z jawnymi metrykami CER: {RESULTS_DIR}/{filename_res}")
+
+# 1. Inicjalizacja architektury (musisz podać taką samą liczbę klas jak w modelu)
+model = build_lprnet(lpr_max_len=8, phase=False, class_num=len(CHARS), dropout_rate=0)
+
+# 2. Opcjonalnie: załaduj plik wag, aby upewnić się, że struktura jest identyczna
+# model.load_state_dict(torch.load("./weights_lprnet/Final_LPRNet_model.pth", map_location="cpu"))
+
+# 3. Kalkulacja parametrów
+total_params = sum(p.numel() for p in model.parameters())
+trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+print(f"=========================================")
+print(f"ANALIZA PARAMETRÓW LPRNet:")
+print(f"=========================================")
+print(f"Wszystkie parametry (Total):    {total_params:,}")
+print(f"Trenowalne parametry (Trainable): {trainable_params:,}")
+print(f"Wielkość na dysku (szacowana):  {total_params * 4 / (1024**2):.2f} MB")
+print(f"=========================================")
 
 
 if __name__ == "__main__":

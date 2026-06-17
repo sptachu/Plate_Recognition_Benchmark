@@ -8,10 +8,10 @@ from ultralytics import YOLO
 from Models.lprnet.model_lprnet.LPRNet import build_lprnet
 
 # --- KONFIGURACJA CCPD ---
-YOLO_MODEL = 'yolo11_plate.pt'
-LPR_MODEL = './Models/lprnet/weights_lprnet/Final_LPRNet_model.pth'
-IMAGES_DIR = './dataset/CCPD2019/CCPD2019/ccpd_base/'
-RESULTS_DIR = "results"
+YOLO_MODEL = '../yolo11_plate.pt'
+LPR_MODEL = '../Models/lprnet/weights_lprnet/Final_LPRNet_model.pth'
+IMAGES_DIR = '../dataset/CCPD2019/CCPD2019/ccpd_base/'
+RESULTS_DIR = "../results"
 MAX_IMAGES = 1000
 IMG_SIZE = [94, 24]
 
@@ -269,8 +269,7 @@ class LPRNetCCPDPruner:
                 f.write(f"Recall:{Recall}\n")
                 f.write(f"F1:{F1}\n")
                 f.write(f"Plate_Accuracy:{acc}\n")
-                f.write(f"CER:{avg_weighted_cer}\n")
-                f.write(f"Standard_CER:{avg_cer}\n")
+                f.write(f"CER:{avg_cer}\n")
                 f.write(f"Weighted_CER:{avg_weighted_cer}\n")
                 f.write(f"YOLO_ms:{yolo_ms}\n")
                 f.write(f"OCR_ms:{ocr_ms}\n")

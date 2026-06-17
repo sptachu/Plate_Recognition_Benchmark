@@ -4,41 +4,109 @@ import cv2
 import Levenshtein
 import re
 import hyperlpr3 as lpr3
+import numpy as np
+import sys
+import json
 
 # --- USTAWIENIA TESTU ---
 MAX_IMAGES = 1000
-IMAGES_DIR = 'dataset/UC3M-LP/test//'
-RESULTS_DIR = "results"
+IMAGES_DIR = '../dataset/UC3M-LP/test/'  # Poprawiono podwójny ukośnik
+RESULTS_DIR = "../results"
+
+print("[*] Uruchamiam potok HyperLPR3...")
+catcher = lpr3.LicensePlateCatcher()
+
+print("\n==================================================================")
+print("[+] LICZBA PARAMETRÓW W KLASIE HYPERLPR3 (Z PAMIĘCI RAM):")
+print("==================================================================")
+
+try:
+    internal_attributes = dir(catcher)
+    for attr in internal_attributes:
+        obj = getattr(catcher, attr)
+        if "InferenceSession" in str(type(obj)):
+            print(f"\n[Wykryto sieć wbudowaną]: {attr}")
+            total_params = 0
+            for initializer in obj.get_initializers():
+                name = initializer.name
+                shape = initializer.shape
+                params_in_layer = int(np.prod(shape))
+                total_params += params_in_layer
+            print(f" -> Liczba wag dla {attr}: {total_params:,} parametrów")
+except Exception as e:
+    print(f"[!] Brak bezpośredniego dostępu do sesji: {e}")
+
+for module_name, module in list(sys.modules.items()):
+    if 'hyperlpr' in module_name and hasattr(module, '__file__') and module.__file__:
+        size_kb = os.path.getsize(module.__file__) / 1024
+        if size_kb > 100:
+            print(f"[Plik bazy kodowej]: {os.path.basename(module.__file__)} ({size_kb:.1f} KB)")
+
+print("==================================================================")
 
 
 # --- FUNKCJE POMOCNICZE ---
 
 def add_padding(img, padding_size=30):
-    """
-    Dodaje margines wokół tablicy. HyperLPR3 potrzebuje tła wokół ramki,
-    żeby 'zrozumieć', że patrzy na prostokąt tablicy.
-    """
     return cv2.copyMakeBorder(
         img, padding_size, padding_size, padding_size, padding_size,
-        cv2.BORDER_CONSTANT, value=[128, 128, 128]  # Szary neutralny
+        cv2.BORDER_CONSTANT, value=[128, 128, 128]
     )
 
 
 def clean_output(text):
-    """Usuwa chińskie znaki i wszystko, co nie jest literą/cyfrą."""
     return re.sub(r'[^A-Z0-9]', '', text.upper())
 
 
-def czytaj_ground_truth_z_nazwy(img_path):
-    filename = os.path.basename(img_path)
-    base_name = os.path.splitext(filename)[0]
-    return base_name.replace(" ", "").upper()
+def czytaj_ground_truth_z_json(img_path):
+    """
+    Dedykowany parser dla struktury JSON z UC3M-LP.
+    Pobiera 'lp_id' lub składa tekst bezpośrednio z pojedynczych znaków.
+    """
+    base_path = os.path.splitext(img_path)[0]
+    json_path = base_path + ".json"
+
+    if not os.path.exists(json_path):
+        json_path = base_path + ".JSON"
+        if not os.path.exists(json_path):
+            return None
+
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        if not isinstance(data, dict) or 'lps' not in data or len(data['lps']) == 0:
+            return None
+
+        # Pobieramy dane pierwszej tablicy z listy
+        lp_data = data['lps'][0]
+
+        # Podejście 1: Próba wyciągnięcia gotowego tekstu z lp_id
+        if 'lp_id' in lp_data and lp_data['lp_id']:
+            raw_text = str(lp_data['lp_id']).upper()
+            # Usuwamy gwiazdki, myślniki i spacje (np. "AN-597*LK*" -> "AN597LK")
+            clean_txt = re.sub(r'[^A-Z0-9]', '', raw_text)
+            if clean_txt:
+                return clean_txt
+
+        # Podejście 2 (Fallback): Jeśli lp_id zawiedzie, składamy tekst ze znaków
+        if 'characters' in lp_data and isinstance(lp_data['characters'], list):
+            chars_list = []
+            for char_obj in lp_data['characters']:
+                if 'char_id' in char_obj and char_obj['char_id']:
+                    chars_list.append(str(char_obj['char_id']).upper())
+
+            if chars_list:
+                assembled_text = "".join(chars_list)
+                return re.sub(r'[^A-Z0-9]', '', assembled_text)
+
+    except Exception as e:
+        print(f"\n[!] Błąd parsowania UC3M JSON {os.path.basename(json_path)}: {e}")
+
+    return None
 
 
 def wazony_levenshtein(s1, s2):
-    """
-    Profesjonalne wagi dla systemów OCR na tablicach rejestracyjnych.
-    """
     kary = {
         ('0', 'O'): 0.1, ('O', 'Q'): 0.2, ('0', 'Q'): 0.2,
         ('D', '0'): 0.2, ('D', 'O'): 0.2, ('8', 'B'): 0.2,
@@ -48,10 +116,8 @@ def wazony_levenshtein(s1, s2):
         ('P', 'R'): 0.3, ('E', 'F'): 0.3, ('E', 'B'): 0.4,
         ('M', 'N'): 0.4, ('K', 'X'): 0.4
     }
-
     n, m = len(s1), len(s2)
     dp = [[0.0] * (m + 1) for _ in range(n + 1)]
-
     for i in range(n + 1): dp[i][0] = float(i)
     for j in range(m + 1): dp[0][j] = float(j)
 
@@ -63,13 +129,7 @@ def wazony_levenshtein(s1, s2):
                 para = (s1[i - 1], s2[j - 1])
                 para_odw = (s2[j - 1], s1[i - 1])
                 koszt = kary.get(para, kary.get(para_odw, 1.0))
-
-            dp[i][j] = min(
-                dp[i - 1][j] + 1.0,  # usunięcie
-                dp[i][j - 1] + 1.0,  # wstawienie
-                dp[i - 1][j - 1] + koszt  # zamiana z wagą
-            )
-
+            dp[i][j] = min(dp[i - 1][j] + 1.0, dp[i][j - 1] + 1.0, dp[i - 1][j - 1] + koszt)
     return dp[n][m]
 
 
@@ -77,11 +137,10 @@ def wazony_levenshtein(s1, s2):
 print("[*] Inicjalizacja HyperLPR3...")
 catcher = lpr3.LicensePlateCatcher(detect_level=lpr3.DETECT_LEVEL_HIGH)
 
-# --- ZMIENNE STATYSTKCZNE SKALIBROWANE POD OCR ---
 TP, FP, FN = 0, 0, 0
 exact_matches = 0
 total_cer = 0.0
-total_weighted_cer = 0.0  # <--- NOWA ZMIENNA
+total_weighted_cer = 0.0
 total_e2e_time = 0.0
 processed_images = 0
 
@@ -92,12 +151,19 @@ try:
 
     for filename in files:
         img_path = os.path.join(IMAGES_DIR, filename)
+
+        # Pobieranie Ground Truth z pliku JSON
+        true_txt = czytaj_ground_truth_z_json(img_path)
+
+        # Jeśli nie ma pliku JSON lub jest pusty - pomijamy obrazek z ewaluacji
+        if not true_txt:
+            print(f"skip (Brak poprawnego Ground Truth w JSON dla {filename})")
+            continue
+
         img = cv2.imread(img_path)
         if img is None: continue
 
-        true_txt = czytaj_ground_truth_z_nazwy(img_path)
-
-        # --- PRE-PROCESSING & INFERENCJA (Z POMIAREM CZASU) ---
+        # --- PRE-PROCESSING & INFERENCJA ---
         t_start = time.perf_counter()
 
         img_prepped = add_padding(img, padding_size=30)
@@ -106,8 +172,7 @@ try:
         duration = time.perf_counter() - t_start
         total_e2e_time += duration
 
-        # --- ANALIZA WYNIKÓW POD KĄTEM JAKOŚCI OCR ---
-        pred_text = "N/A"
+        pred_txt = ""
         cer = 1.0
         w_cer = 1.0
 
@@ -115,7 +180,6 @@ try:
             raw_pred = hy_results[0][0]
             pred_txt = clean_output(raw_pred)
 
-            # Kalkulacja błędów znakowych
             dlugosc_gt = len(true_txt) if len(true_txt) > 0 else 1.0
 
             # Standardowy CER
@@ -128,16 +192,15 @@ try:
             w_cer = weighted_dist / dlugosc_gt
             total_weighted_cer += w_cer
 
-            # Klasyfikacja klasyczna pod macierz pomyłek OCR
             if true_txt == pred_txt:
-                TP += 1  # Idealny odczyt całego ciągu
+                TP += 1
                 exact_matches += 1
                 status = "✅ OK"
             else:
-                FP += 1  # Odczytał, ale z błędami w znakach
+                FP += 1
                 status = "❌ BŁĄD"
         else:
-            FN += 1  # Silnik całkowicie pominął obrazek lub nie odczytał nic
+            FN += 1
             status = "⚪ BRAK"
 
         print(
@@ -153,12 +216,10 @@ except Exception as e:
 
 finally:
     if processed_images > 0:
-        # Metryki jakości na poziomie OCR
         Precision = TP / (TP + FP) if (TP + FP) > 0 else 0.0
         Recall = TP / (TP + FN) if (TP + FN) > 0 else 0.0
         F1 = 2 * (Precision * Recall) / (Precision + Recall) if (Precision + Recall) > 0 else 0.0
 
-        # Wyliczanie średnich wydajności
         avg_ms = (total_e2e_time / processed_images) * 1000
         acc = (exact_matches / processed_images) * 100
 
@@ -177,7 +238,6 @@ finally:
         print(f"Latency  -> Średnio E2E: {avg_ms:.2f} ms / obraz")
         print("=" * 60)
 
-        # --- ZAPIS IDENTYCZNEGO RAPORTU DLA SHOW_RESULTS.PY ---
         os.makedirs(RESULTS_DIR, exist_ok=True)
         filename_res = f"results_spanishhyper_final_{int(time.time())}.txt"
         with open(os.path.join(RESULTS_DIR, filename_res), 'w', encoding='utf-8') as f:
@@ -188,11 +248,8 @@ finally:
             f.write(f"Recall:{Recall}\n")
             f.write(f"F1:{F1}\n")
             f.write(f"Plate_Accuracy:{acc}\n")
-            f.write(f"CER:{avg_weighted_cer}\n")
-            f.write(f"Standard_CER:{avg_cer}\n")
+            f.write(f"CER:{avg_cer}\n")
             f.write(f"Weighted_CER:{avg_weighted_cer}\n")
-            f.write(f"YOLO_ms:{avg_ms * 0.5}\n")  # Emulacja podziału czasowego pod ogólny wykres
-            f.write(f"OCR_ms:{avg_ms * 0.5}\n")  # Emulacja podziału czasowego pod ogólny wykres
             f.write(f"E2E_ms:{avg_ms}\n")
 
         print(f"[+] Zapisano zunifikowany raport HyperLPR3: {RESULTS_DIR}/{filename_res}")
