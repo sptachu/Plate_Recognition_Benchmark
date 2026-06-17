@@ -81,7 +81,7 @@ catcher = lpr3.LicensePlateCatcher(detect_level=lpr3.DETECT_LEVEL_HIGH)
 TP, FP, FN = 0, 0, 0
 exact_matches = 0
 total_cer = 0.0
-total_weighted_cer = 0.0  # <--- NOWA ZMIENNA
+total_weighted_cer = 0.0
 total_e2e_time = 0.0
 processed_images = 0
 

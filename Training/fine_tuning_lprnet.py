@@ -8,7 +8,6 @@ import numpy as np
 import time
 import argparse
 
-# Importy z Twojego projektu
 from Models.lprnet.model_lprnet.LPRNet import build_lprnet
 from Tools.load_data import LPRDataLoader, CHARS
 

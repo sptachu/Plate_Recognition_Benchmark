@@ -7,7 +7,6 @@ import time
 import json
 import cv2
 import Levenshtein
-import re
 from ultralytics import YOLO
 
 # --- USTAWIENIA TESTU ---
@@ -111,8 +110,6 @@ device_yolo, use_gpu_ocr = detect_hardware()
 print("[*] Ładowanie YOLO11...")
 detector = YOLO('yolo11_plate.pt')
 print("[*] Ładowanie PaddleOCR...")
-# det=False disables Paddle's built-in text detection (YOLO does this for us)
-# lang='en' works best for standard alphanumeric license plates
 
 # 2. Use the updated argument names
 reader = PaddleOCR(

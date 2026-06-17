@@ -5,8 +5,6 @@ import cv2
 import Levenshtein
 import torch
 from ultralytics import YOLO
-import easyocr
-import re
 import numpy as np
 from easyocr.model.vgg_model import Model
 
@@ -40,7 +38,7 @@ class CzystyRozpoznawacz:
             num_class=len(self.char_list)
         )
 
-        # 2. Ładowanie Twoich wag
+        # 2. Ładowanie wag
         state_dict = torch.load(model_path, map_location=self.device)
 
         # Oczyszczanie kluczy z prefixu 'module.' (pozostałość po treningu na GPU)

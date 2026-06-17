@@ -9,7 +9,7 @@ import easyocr
 # --- USTAWIENIA TESTU ---
 MAX_IMAGES = 1000  # Limit obrazków do przetworzenia w jednym teście
 BASE_DIR = 'dataset/CCPD2019/CCPD2019/'  # Główny folder datasetu
-TEST_SPLIT_FILE = os.path.join(BASE_DIR, 'splits', 'new_test.txt')  # Testujemy na poprawnym zbiorze!
+TEST_SPLIT_FILE = os.path.join(BASE_DIR, 'splits', 'new_test.txt')
 
 # Dodaj parametry swojego modelu:
 CUSTOM_MODEL_NAME = 'custom_ccpd_easyOCR'
@@ -126,9 +126,8 @@ print("[*] Ładowanie YOLO11...")
 detector = YOLO('yolo11_plate.pt')
 
 print("[*] Ładowanie EasyOCR...")
-# UWAGA: Dodano 'ch_sim', aby czytać chińskie znaki prowincji!
 reader = easyocr.Reader(
-    lang_list=['en'], # Zostaje sam angielski (alfanumeryczny)
+    lang_list=['en'],
     recog_network=CUSTOM_MODEL_NAME,
     user_network_directory=CUSTOM_MODEL_DIR,
     model_storage_directory=CUSTOM_MODEL_DIR,
@@ -184,7 +183,7 @@ try:
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                 pred_boxes.append([x1, y1, x2, y2])
 
-                # --- KROK 1: CIĘCIE (Wracamy do ustawień z treningu!) ---
+                # --- KROK 1: CIĘCIE
                 szerokosc = x2 - x1
 
                 # Odcinamy DOKŁADNIE 37% z lewej strony, bo tak model był trenowany
@@ -197,15 +196,11 @@ try:
                     continue
 
                 # --- KROK 2: PRE-PROCESSING ---
-                # Usunąłem blura i normalizację! Model uczył się na surowych kadrach,
-                # więc dodawanie filtrów zaburzyłoby to, co "widzą" zamrożone wagi VGG.
                 gray = cv2.cvtColor(plate_crop, cv2.COLOR_BGR2GRAY)
 
                 t_start_ocr = time.perf_counter()
 
                 # --- KROK 3: EASYOCR ---
-                # Używamy detail=0. Wytrenowany model nie poszatkuje już tekstu,
-                # tylko zwróci od razu elegancką listę tekstów (zazwyczaj jednoelementową).
                 ocr_results = reader.readtext(
                     gray,
                     detail=0,

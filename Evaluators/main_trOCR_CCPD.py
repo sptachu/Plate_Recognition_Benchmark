@@ -1,12 +1,11 @@
 import os
 import time
-import json
 import cv2
 import Levenshtein
 import torch
 from ultralytics import YOLO
 from PIL import Image
-from transformers import TrOCRProcessor, VisionEncoderDecoderModel, LogitsProcessor, LogitsProcessorList, AutoProcessor, AutoModelForImageTextToText, ViTImageProcessor, AutoTokenizer
+from transformers import TrOCRProcessor, VisionEncoderDecoderModel, LogitsProcessor, LogitsProcessorList
 
 # --- USTAWIENIA TESTU ---
 MAX_IMAGES = 1000  # Limit obrazków do przetworzenia w jednym teście

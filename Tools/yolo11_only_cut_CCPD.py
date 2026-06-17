@@ -8,14 +8,12 @@ from ultralytics import YOLO
 # --- USTAWIENIA ---
 ROOT_DATA_DIR = 'dataset/CCPD2019/CCPD2019/'
 
-# ZMIANA: Dokładnie te pliki, które przed chwilą wygenerował Twój pierwszy skrypt!
 SPLIT_FILES = {
     'train': 'dataset/CCPD2019/CCPD2019/splits/train_nowy.txt',
     'test': 'dataset/CCPD2019/CCPD2019/splits/test_nowy.txt'
 }
 
 # --- LIMITS ---
-# (Zostawiłem na wszelki wypadek, choć listy mają już 9000/1000)
 LIMITS = {
     'train': 9000,
     'test': 1000
@@ -91,7 +89,7 @@ def wytnij_i_zapisz():
 
         output_dir = os.path.join(ROOT_DATA_DIR, f"{split_name}_ocr")
         os.makedirs(output_dir, exist_ok=True)
-        czysc_folder(output_dir)  # Odpalenie miotły przed pracą
+        czysc_folder(output_dir)
 
         labels_file_path = os.path.join(output_dir, 'labels.txt')
 
