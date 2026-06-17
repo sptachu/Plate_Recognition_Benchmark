@@ -5,13 +5,11 @@ import cv2
 import Levenshtein
 import torch
 from ultralytics import YOLO
-import easyocr
-import re
 import numpy as np
 from easyocr.model.vgg_model import Model
 
 # --- USTAWIENIA TESTU ---
-MAX_IMAGES = 349  # Limit obrazków do przetworzenia w jednym teście
+MAX_IMAGES = 400  # Limit obrazków do przetworzenia w jednym teście
 IMAGES_DIR = 'dataset/UC3M-LP/test/'  # ścieżka do folderu ze zdjęciami
 LABELS_DIR = 'dataset/UC3M-LP/test/'  # ścieżka do folderu z plikami JSON
 
@@ -40,7 +38,7 @@ class CzystyRozpoznawacz:
             num_class=len(self.char_list)
         )
 
-        # 2. Ładowanie Twoich wag
+        # 2. Ładowanie wag
         state_dict = torch.load(model_path, map_location=self.device)
 
         # Oczyszczanie kluczy z prefixu 'module.' (pozostałość po treningu na GPU)

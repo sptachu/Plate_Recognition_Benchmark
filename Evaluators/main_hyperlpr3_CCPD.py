@@ -2,14 +2,12 @@ import os
 import time
 import cv2
 import Levenshtein
-import re
-import numpy as np
 import hyperlpr3 as lpr3
 
 # --- KONFIGURACJA CCPD ---
 MAX_IMAGES = 1000
-IMAGES_DIR = '../dataset/CCPD2019/ccpd_base/'  # Zmień na swoją ścieżkę
-RESULTS_DIR = "../results"
+IMAGES_DIR = 'dataset/CCPD2019/CCPD2019/ccpd_base/'
+RESULTS_DIR = "results"
 
 # Mapowanie indeksów CCPD na znaki
 provinces = ["皖", "沪", "津", "渝", "冀", "晋", "蒙", "辽", "吉", "黑", "苏", "浙", "京", "闽", "赣", "鲁", "豫", "鄂", "湘", "粤", "桂",
@@ -191,7 +189,10 @@ if processed_images > 0:
         f.write(f"F1:{F1}\n")
         f.write(f"Plate_Accuracy:{acc}\n")
         f.write(f"CER:{avg_weighted_cer}\n")
+        f.write(f"Standard_CER:{avg_cer}\n")
         f.write(f"Weighted_CER:{avg_weighted_cer}\n")
+        f.write(f"YOLO_ms:{avg_ms * 0.5}\n")
+        f.write(f"OCR_ms:{avg_ms * 0.5}\n")
         f.write(f"E2E_ms:{avg_ms}\n")
 
     print(f"[+] Zapisano zunifikowany raport CCPD: {RESULTS_DIR}/{filename_res}")

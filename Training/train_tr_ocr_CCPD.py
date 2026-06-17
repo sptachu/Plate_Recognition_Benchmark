@@ -12,8 +12,8 @@ from transformers import (
 from jiwer import cer
 
 # --- 1. CONFIGURATION ---
-TRAIN_CSV = "dataset/CCPD2019/CCPD2019/train_ocr/labels.csv"  # Your CSV file
-IMAGE_DIR = "dataset/CCPD2019/CCPD2019/train_ocr/"       # Folder with your YOLO crops
+TRAIN_CSV = "dataset/CCPD2019/CCPD2019/train_ocr/labels.csv"
+IMAGE_DIR = "dataset/CCPD2019/CCPD2019/train_ocr/"
 MODEL_NAME = "microsoft/trocr-small-printed"
 OUTPUT_DIR = "./trocr-license-plates-CCPD"
 
@@ -29,15 +29,12 @@ class LicensePlateDataset(Dataset):
         return len(self.df)
 
     def __getitem__(self, idx):
-        # Get file name and text
         file_name = self.df.iloc[idx]['filename']
         text = self.df.iloc[idx]['words']
         
-        # Load and prepare image
         image = Image.open(f"{self.img_dir}/{file_name}").convert("RGB")
         pixel_values = self.processor(image, return_tensors="pt").pixel_values
 
-        # Prepare text labels
         labels = self.processor.tokenizer(
             text, 
             padding="max_length", 
@@ -45,8 +42,6 @@ class LicensePlateDataset(Dataset):
             truncation=True
         ).input_ids
 
-        # CRITICAL: Replace padding token id (usually 1 or 0) with -100
-        # This tells PyTorch: "Don't calculate loss on these tokens"
         labels = [label if label != self.processor.tokenizer.pad_token_id else -100 for label in labels]
 
         encoding = {"pixel_values": pixel_values.squeeze(), "labels": torch.tensor(labels)}
@@ -57,12 +52,10 @@ def compute_metrics(pred):
     labels_ids = pred.label_ids
     pred_ids = pred.predictions
 
-    # Decode predictions and labels
     pred_str = processor.batch_decode(pred_ids, skip_special_tokens=True)
     labels_ids[labels_ids == -100] = processor.tokenizer.pad_token_id
     label_str = processor.batch_decode(labels_ids, skip_special_tokens=True)
 
-    # Calculate Character Error Rate (CER)
     cer_score = cer(label_str, pred_str)
     return {"cer": cer_score}
 
@@ -75,21 +68,20 @@ model.config.decoder_start_token_id = processor.tokenizer.cls_token_id
 model.config.pad_token_id = processor.tokenizer.pad_token_id
 model.config.vocab_size = model.config.decoder.vocab_size
 
-# Load dataset
 train_dataset = LicensePlateDataset(TRAIN_CSV, IMAGE_DIR, processor)
 
 # --- 5. TRAINING ARGUMENTS ---
 training_args = Seq2SeqTrainingArguments(
     predict_with_generate=True,
-    per_device_train_batch_size=6,      # Bumped slightly if VRAM allows
+    per_device_train_batch_size=6,
     per_device_eval_batch_size=6,
     num_train_epochs=5,
-    learning_rate=2e-5,                 # Slightly higher LR to handle the new character set
-    weight_decay=0.01,                  # Helps prevent overfitting on the 5k subset
-    warmup_ratio=0.1,                   # Gentle start for the first 10% of steps
-    fp16=True,                          # Keep this for speed
+    learning_rate=2e-5,
+    weight_decay=0.01,
+    warmup_ratio=0.1,
+    fp16=True,
     save_strategy="epoch",
-    save_total_limit=10,                 # Keep only the best 2 models to save disk space
+    save_total_limit=10,
     logging_steps=20,
     output_dir=OUTPUT_DIR
 )

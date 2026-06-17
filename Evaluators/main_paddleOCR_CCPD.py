@@ -1,11 +1,10 @@
 import os
 import time
-import json
 import cv2
 import Levenshtein
 import torch
 from ultralytics import YOLO
-from paddleocr import PaddleOCR  # Zmieniono z transformers / PIL imports
+from paddleocr import PaddleOCR
 
 # --- USTAWIENIA TESTU ---
 MAX_IMAGES = 1000  # Limit obrazków do przetworzenia w jednym teście
@@ -57,7 +56,6 @@ def parse_ccpd_filename(filename):
     x1, y1 = int(p1[0]), int(p1[1])
     x2, y2 = int(p2[0]), int(p2[1])
     
-    # Upewniamy się, że format to [min_x, min_y, max_x, max_y]
     gt_box = [[min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]]
     
     # 2. Składanie prawdziwego tekstu (część 4 w nazwie)
@@ -86,12 +84,6 @@ def postprocess_plate(raw_text, target_len=5):
 
     # 2. Fix Length Anomalies
     if len(text) > target_len:
-        # # If it's too long, it's usually because the OCR saw the edge of your 
-        # # black padding block as a '1', 'I', 'L', or 'T'. 
-        # if len(text) == target_len + 1 and text[0] in ['1', 'I', 'L', 'T', 'J']:
-        #     text = text[1:]  # Strip the left-side noise
-        # else:
-        #     # Otherwise, just trim the excess from the right
         text = text[:target_len] 
 
     # 3. Apply Positional Logic
@@ -161,7 +153,7 @@ detector = YOLO('yolo11_plate.pt')
 print("[*] Ładowanie PaddleOCR...")
 
 # Inicjalizacja domyślnego modelu chińskiego PP-OCRv4 (obsługuje prowincje i znaki alfanumeryczne)
-reader = PaddleOCR(lang="ch", use_angle_cls=False, use_gpu=False, show_log=False)
+reader = PaddleOCR(lang="ch", use_angle_cls=False, use_gpu=use_gpu_ocr, show_log=False)
 
 # --- ZMIENNE DO STATYSTYK ---
 TP, FP, FN = 0, 0, 0

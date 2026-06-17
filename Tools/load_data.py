@@ -83,8 +83,6 @@ class LPRDataLoader(Dataset):
                 label.append(CHARS_DICT[c])
             # Ignorujemy znaki, których nie ma w słowniku, aby uniknąć KeyError
 
-        # UWAGA: Usunięto funkcję self.check(), bo blokowała europejskie tablice!
-
         return image, label, len(label)
 
     def transform(self, img):
