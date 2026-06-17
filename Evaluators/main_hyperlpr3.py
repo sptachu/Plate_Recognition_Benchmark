@@ -13,6 +13,7 @@ MAX_IMAGES = 1000
 IMAGES_DIR = '../dataset/UC3M-LP/test/'  # Poprawiono podwójny ukośnik
 RESULTS_DIR = "../results"
 
+
 print("[*] Uruchamiam potok HyperLPR3...")
 catcher = lpr3.LicensePlateCatcher()
 

@@ -238,5 +238,6 @@ print(f"Wielkość na dysku (szacowana):  {total_params * 4 / (1024**2):.2f} MB"
 print(f"=========================================")
 
 
+
 if __name__ == "__main__":
     LPRNetJsonBenchmark().run()
